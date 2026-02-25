@@ -29,6 +29,11 @@ ui_available() {
 ui_menu() {
   local title="$1"
   shift
+
+  if [ ! -t 0 ] || [ ! -t 1 ]; then
+    _ui_menu_ascii "$title" "$@"
+    return
+  fi
   
   if [ "$UI_BACKEND" = "ascii" ]; then
     _ui_menu_ascii "$title" "$@"
@@ -42,21 +47,25 @@ _ui_menu_ascii() {
   local title="$1"
   shift
   
-  echo ""
-  echo "═══════════════════════════════════════════"
-  echo "  $title"
-  echo "═══════════════════════════════════════════"
-  echo ""
+  echo "" >&2
+  echo "═══════════════════════════════════════════" >&2
+  echo "  $title" >&2
+  echo "═══════════════════════════════════════════" >&2
+  echo "" >&2
   
   local i=1
   for option in "$@"; do
-    echo "   [$i] $option"
+    echo "   [$i] $option" >&2
     i=$((i + 1))
   done
   
-  echo ""
-  printf "➤ Select option: "
-  read selection
+  echo "" >&2
+  printf "➤ Select option: " >&2
+  if [ -t 0 ] && [ -r /dev/tty ]; then
+    read selection < /dev/tty
+  else
+    read selection
+  fi
   echo "$selection"
 }
 
@@ -64,9 +73,29 @@ _ui_menu_ascii() {
 _ui_menu_whiptail() {
   local title="$1"
   shift
-  
-  # Fallback to ASCII for now (whiptail requires TTY)
-  _ui_menu_ascii "$title" "$@"
+
+  local i=1
+  local menu_items=""
+  local menu_height=10
+  local selection=""
+
+  for option in "$@"; do
+    menu_items="$menu_items $i \"$option\""
+    i=$((i + 1))
+  done
+
+  if [ "$UI_BACKEND" = "whiptail" ]; then
+    selection=$(eval "whiptail --title \"$title\" --menu \"$title\" 20 78 $menu_height $menu_items 3>&1 1>&2 2>&3")
+  else
+    selection=$(eval "dialog --clear --title \"$title\" --menu \"$title\" 20 78 $menu_height $menu_items --stdout")
+  fi
+
+  if [ $? -ne 0 ] || [ -z "$selection" ]; then
+    echo "4"
+    return
+  fi
+
+  echo "$selection"
 }
 
 # Input prompt
@@ -76,12 +105,16 @@ ui_input() {
   local default="${2:-}"
   
   if [ -n "$default" ]; then
-    printf "❓ $prompt [$default]: "
+    printf "❓ $prompt [$default]: " >&2
   else
-    printf "❓ $prompt: "
+    printf "❓ $prompt: " >&2
   fi
   
-  read value
+  if [ -t 0 ] && [ -r /dev/tty ]; then
+    read value < /dev/tty
+  else
+    read value
+  fi
   if [ -z "$value" ] && [ -n "$default" ]; then
     echo "$default"
   else
@@ -93,11 +126,15 @@ ui_input() {
 ui_input_secret() {
   local prompt="$1"
   
-  printf "🔑 $prompt: "
+  printf "🔑 $prompt: " >&2
   stty -echo 2>/dev/null
-  read value
+  if [ -t 0 ] && [ -r /dev/tty ]; then
+    read value < /dev/tty
+  else
+    read value
+  fi
   stty echo 2>/dev/null
-  echo ""  # Newline after masked input
+  echo "" >&2
   echo "$value"
 }
 
@@ -122,10 +159,13 @@ ui_msg() {
 }
 
 ui_banner() {
-  clear 2>/dev/null || true
   echo "╔══════════════════════════════════════════╗"
-  echo "║     MikroClaw Installer v0.2.0          ║"
+  echo "║   MikroClaw Installer 2026.02.25:BETA   ║"
   echo "║     AI Agent for MikroTik RouterOS      ║"
   echo "╚══════════════════════════════════════════╝"
   echo ""
+}
+
+ui_clear() {
+  clear 2>/dev/null || true
 }

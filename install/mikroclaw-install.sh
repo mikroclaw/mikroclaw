@@ -1,8 +1,10 @@
 #!/bin/sh
-# MikroClaw TUI Installer v0.2.0
+# MikroClaw TUI Installer 2026.02.25:BETA
 # Human-friendly installer for MikroClaw AI Agent
 
 set -e
+
+INSTALLER_VERSION="2026.02.25:BETA"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -13,6 +15,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Show usage
 usage() {
   echo "Usage: $0 [OPTIONS]"
+  echo ""
+  echo "MikroClaw Installer ${INSTALLER_VERSION}"
   echo ""
   echo "Options:"
   echo "  --target TARGET    Install target: routeros, linux, docker"
@@ -179,6 +183,7 @@ install_linux() {
 # Main interactive flow
 main_interactive() {
   ui_init
+  ui_clear
   ui_banner
   
   # Select target
@@ -199,6 +204,7 @@ main_interactive() {
 
 # RouterOS interactive install
 install_routeros_interactive() {
+  ui_clear
   ui_banner
   ui_msg "RouterOS Installation"
   ui_msg ""
@@ -250,6 +256,7 @@ install_routeros_interactive() {
 
 # Linux interactive install
 install_linux_interactive() {
+  ui_clear
   ui_banner
   ui_msg "Linux Installation"
   ui_msg ""
@@ -263,6 +270,7 @@ install_linux_interactive() {
 
 # Docker interactive install
 install_docker_interactive() {
+  ui_clear
   ui_banner
   ui_msg "Docker Installation"
   ui_msg ""
