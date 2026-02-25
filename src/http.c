@@ -18,6 +18,12 @@
 #include <errno.h>
 #include <sys/time.h>
 
+#ifdef __GNUC__
+#define HTTP_WEAK __attribute__((weak))
+#else
+#define HTTP_WEAK
+#endif
+
 /* HTTP client structure */
 struct http_client {
     char hostname[HTTP_MAX_HOSTNAME];
@@ -44,7 +50,7 @@ static int set_timeout(int fd, int timeout_ms) {
 }
 
 /* Create HTTP client */
-struct http_client *http_client_create(const char *hostname, uint16_t port, bool use_tls) {
+HTTP_WEAK struct http_client *http_client_create(const char *hostname, uint16_t port, bool use_tls) {
     struct http_client *client = calloc(1, sizeof(*client));
     if (!client) return NULL;
     
@@ -66,7 +72,7 @@ struct http_client *http_client_create(const char *hostname, uint16_t port, bool
 }
 
 /* Destroy HTTP client */
-void http_client_destroy(struct http_client *client) {
+HTTP_WEAK void http_client_destroy(struct http_client *client) {
     if (!client) return;
     
     if (client->use_tls) {
@@ -187,33 +193,52 @@ static int build_request(char *buf, size_t max_len,
                          const char *hostname,
                          const struct http_header *headers, int num_headers,
                          const char *body, size_t body_len) {
-    int n = snprintf(buf, max_len,
+int n = snprintf(buf, max_len,
         "%s %s HTTP/1.1\r\n"
         "Host: %s\r\n"
         "User-Agent: MikroClaw/0.1.0\r\n"
         "Accept: application/json\r\n",
         method, path, hostname);
-    
+    if (n < 0 || (size_t)n >= max_len) {
+        return -1;
+    }
+
     if (body && body_len > 0) {
-        n += snprintf(buf + n, max_len - n,
+        int written = snprintf(buf + n, max_len - n,
             "Content-Type: application/json\r\n"
             "Content-Length: %zu\r\n",
             body_len);
+        if (written < 0 || (size_t)written >= (max_len - (size_t)n)) {
+            return -1;
+        }
+        n += written;
     }
-    
+
     /* Add custom headers */
     for (int i = 0; i < num_headers && n < (int)max_len - 1; i++) {
-        n += snprintf(buf + n, max_len - n, "%s: %s\r\n",
+        int written = snprintf(buf + n, max_len - n, "%s: %s\r\n",
                       headers[i].name, headers[i].value);
+        if (written < 0 || (size_t)written >= (max_len - (size_t)n)) {
+            return -1;
+        }
+        n += written;
     }
-    
-    n += snprintf(buf + n, max_len - n, "\r\n");
-    
+
+    {
+        int written = snprintf(buf + n, max_len - n, "\r\n");
+        if (written < 0 || (size_t)written >= (max_len - (size_t)n)) {
+            return -1;
+        }
+        n += written;
+    }
+
     if (body && body_len > 0 && n + (int)body_len < (int)max_len) {
         memcpy(buf + n, body, body_len);
         n += body_len;
+    } else if (body && body_len > 0) {
+        return -1;
     }
-    
+
     return n;
 }
 
@@ -280,9 +305,9 @@ static int parse_response(const char *data, size_t len, struct http_response *re
 }
 
 /* HTTP GET */
-int http_get(struct http_client *client, const char *path,
-             const struct http_header *headers, int num_headers,
-             struct http_response *response) {
+HTTP_WEAK int http_get(struct http_client *client, const char *path,
+                      const struct http_header *headers, int num_headers,
+                      struct http_response *response) {
     int ret;
     
     ret = http_connect(client);
@@ -292,7 +317,10 @@ int http_get(struct http_client *client, const char *path,
     int req_len = build_request(request, sizeof(request),
                                 "GET", path, client->hostname,
                                 headers, num_headers, NULL, 0);
-    
+    if (req_len < 0) {
+        return HTTP_ERR_NOMEM;
+    }
+
     ret = http_send(client, request, req_len);
     if (ret != 0) return ret;
     
@@ -305,10 +333,10 @@ int http_get(struct http_client *client, const char *path,
 }
 
 /* HTTP POST */
-int http_post(struct http_client *client, const char *path,
-              const struct http_header *headers, int num_headers,
-              const char *body, size_t body_len,
-              struct http_response *response) {
+HTTP_WEAK int http_post(struct http_client *client, const char *path,
+                       const struct http_header *headers, int num_headers,
+                       const char *body, size_t body_len,
+                       struct http_response *response) {
     int ret;
     
     ret = http_connect(client);
@@ -318,6 +346,9 @@ int http_post(struct http_client *client, const char *path,
     int req_len = build_request(request, sizeof(request),
                                 "POST", path, client->hostname,
                                 headers, num_headers, body, body_len);
+    if (req_len < 0) {
+        return HTTP_ERR_NOMEM;
+    }
     
     ret = http_send(client, request, req_len);
     if (ret != 0) return ret;
@@ -331,12 +362,12 @@ int http_post(struct http_client *client, const char *path,
 }
 
 /* Clear response */
-void http_response_clear(struct http_response *response) {
+HTTP_WEAK void http_response_clear(struct http_response *response) {
     memset(response, 0, sizeof(*response));
 }
 
 /* Get header value */
-const char *http_response_get_header(const struct http_response *response, const char *name) {
+HTTP_WEAK const char *http_response_get_header(const struct http_response *response, const char *name) {
     for (int i = 0; i < response->num_headers; i++) {
         if (strcasecmp(response->headers[i].name, name) == 0) {
             return response->headers[i].value;
