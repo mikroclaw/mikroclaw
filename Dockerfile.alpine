@@ -1,0 +1,27 @@
+FROM alpine:latest
+
+# Install dependencies
+RUN apk add --no-cache mbedtls ca-certificates
+
+# Create app directory
+WORKDIR /app
+
+# Copy MikroClaw binary
+COPY mikroclaw /app/mikroclaw
+
+# Create data directory for local storage (2.88MB limit)
+RUN mkdir -p /data
+
+# Environment variables (set at runtime)
+ENV BOT_TOKEN=""
+ENV OPENROUTER_KEY=""
+ENV ROUTER_HOST="172.17.0.1"
+ENV ROUTER_USER=""
+ENV ROUTER_PASS=""
+ENV B2_KEY_ID=""
+ENV B2_KEY=""
+ENV B2_BUCKET="mikroclaw"
+ENV GATEWAY_PORT="18789"
+
+# Run MikroClaw
+ENTRYPOINT ["/app/mikroclaw"]

@@ -1,0 +1,19 @@
+FROM alpine:3.19
+
+RUN apk add --no-cache \
+    build-base \
+    musl-dev \
+    linux-headers \
+    mbedtls-dev \
+    mbedtls-static \
+    sqlite-dev \
+    sqlite-static \
+    git \
+    file
+
+WORKDIR /build
+COPY . /build/mikroclaw/
+RUN chmod +x /build/mikroclaw/scripts/build-mbedtls.sh /build/mikroclaw/scripts/build-musl.sh
+
+WORKDIR /build/mikroclaw
+CMD ["make", "static-musl"]

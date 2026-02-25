@@ -1,0 +1,4 @@
+FROM scratch
+COPY mikroclaw /
+EXPOSE 18789
+ENTRYPOINT ["/mikroclaw"]

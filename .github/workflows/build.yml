@@ -1,0 +1,102 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-default:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libmbedtls-dev
+
+      - name: Build
+        run: make clean && make
+
+      - name: Enforce dynamic size budget
+        run: |
+          size=$(stat -c%s ./mikroclaw)
+          test "$size" -lt 98304
+
+      - name: Release verification
+        run: |
+          chmod +x ./scripts/verify-release.sh
+          ./scripts/verify-release.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mikroclaw-dynamic
+          path: mikroclaw
+
+  build-static-musl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build static musl
+        run: |
+          chmod +x ./scripts/build-musl.sh
+          ./scripts/build-musl.sh
+
+      - name: Verify static binary
+        run: |
+          file ./mikroclaw-static-musl
+          ldd ./mikroclaw-static-musl 2>&1 | grep "not a dynamic executable"
+          size=$(stat -c%s ./mikroclaw-static-musl)
+          test "$size" -lt 256000
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mikroclaw-static-musl
+          path: mikroclaw-static-musl
+
+  build-custom-mbedtls:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain and mbedTLS source
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libmbedtls-dev git
+          git clone --depth 1 --branch mbedtls-2.28.10 https://github.com/Mbed-TLS/mbedtls.git /tmp/mbedtls
+
+      - name: Build custom mbedTLS
+        run: |
+          chmod +x ./scripts/build-mbedtls.sh
+          MBEDTLS_SRC=/tmp/mbedtls ./scripts/build-mbedtls.sh ./third_party/mbedtls
+
+      - name: Build minimal target with custom mbedTLS
+        run: make clean && make USE_CUSTOM_MBEDTLS=1 CUSTOM_MBEDTLS_PREFIX=./third_party/mbedtls mikroclaw-minimal
+
+      - name: Report size
+        run: ls -lh ./mikroclaw
+
+  build-mikrotik-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libmbedtls-dev
+
+      - name: Build RouterOS container binary
+        run: make mikrotik-docker
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mikrotik-docker
+          path: mikrotik-docker

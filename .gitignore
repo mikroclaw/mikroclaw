@@ -1,0 +1,112 @@
+# ============================================================================
+# MikroClaw .gitignore
+# ============================================================================
+
+# Build artifacts - main binaries
+mikroclaw
+mikroclaw-static-musl
+mikroclaw-static-mbedtls
+mikrotik-docker
+*.tar.gz
+
+# Compiled object files and libraries
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+
+# Build directories
+build/
+dist/
+cmake-build-*/
+out/
+
+# Development / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.*.swp
+.*.swo
+
+# Testing - keep only source files
+tests/test_*
+!tests/test_*.c
+!tests/test_*.h
+!tests/test_*.sh
+
+# Temporary and log files
+*.tmp
+*.temp
+*.log
+*.cache
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Empty file that shouldn't exist
+EOF
+
+# Internal planning directories (not for public repo)
+.sisyphus/
+.worktrees/
+
+# Dependencies that should be built locally
+third_party/mbedtls/
+!third_party/mbedtls/.gitkeep
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.crt
+!vendor/mbedtls_config_*.h
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Core dumps
+core
+core.*
+vgcore.*
+
+# Coverage and profiling
+*.gcno
+*.gcda
+*.gcov
+coverage/
+*.profraw
+*.profdata
+
+# Package manager files
+node_modules/
+package-lock.json
+yarn.lock
+
+# Backup files
+*.bak
+*.orig
+*.rej
+
+# ctags / cscope
+tags
+TAGS
+cscope.*
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile.cmake
+CTestTestfile.cmake
+Testing/

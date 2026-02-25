@@ -1,0 +1,108 @@
+# MikroClaw Build System - Dynamic Linking Edition
+# Links against system shared libraries for smaller binary
+
+CC = gcc
+CFLAGS = -Os -Wall -Wextra
+CFLAGS += -ffunction-sections -fdata-sections
+CFLAGS += -fmerge-all-constants
+CFLAGS += -fno-stack-protector
+CFLAGS += -I. -Isrc -Ivendor -I/usr/include
+
+# Linker flags - DYNAMIC linking (no -static)
+LDFLAGS = -Wl,--gc-sections -Wl,--strip-all
+
+# mbedTLS libraries (shared/dynamic)
+LDLIBS = -lmbedtls -lmbedx509 -lmbedcrypto -lcurl
+
+# Feature flags
+FLAGS = \
+    -DCHANNEL_TELEGRAM=1 \
+    -DCHANNEL_DISCORD=1 \
+    -DCHANNEL_SLACK=1 \
+    -DUSE_MEMU_CLOUD=1 \
+    -DSTORAGE_LOCAL_ENABLED=1 \
+    -DSTORAGE_B2_ENABLED=1 \
+    -DTOOL_FILE_READ=1 \
+    -DTOOL_FILE_WRITE=1 \
+    -DENABLE_GATEWAY=1 \
+    -DENABLE_HEARTBEAT=1
+
+# Source files
+SRCS = \
+    vendor/jsmn.c \
+    vendor/mbedtls_integration.c \
+    src/http.c \
+    src/json.c \
+    src/storage_local.c \
+    src/functions.c \
+    src/memu_client.c \
+    src/memu_client_stub.c \
+    src/config_memu.c \
+    src/http_client.c \
+    src/routeros.c \
+    src/llm.c \
+    src/cli.c \
+    src/channels/telegram.c \
+    src/channels/discord.c \
+    src/channels/slack.c \
+    src/channels/imessage.c \
+    src/channels/matrix.c \
+    src/channels/whatsapp.c \
+    src/gateway.c \
+    src/gateway_auth.c \
+    src/rate_limit.c \
+    src/channel_supervisor.c \
+    src/task_queue.c \
+    src/task_handlers.c \
+    src/worker_pool.c \
+    src/subagent.c \
+    src/tasks/investigate.c \
+    src/tasks/analyze.c \
+    src/tasks/summarize.c \
+    src/tasks/skill_invoke.c \
+    src/cron.c \
+    src/mikroclaw.c \
+    src/main.c
+
+TARGET = mikroclaw
+
+.PHONY: all clean size test static
+
+all: $(TARGET) size
+
+$(TARGET): $(SRCS)
+	@echo "Building MikroClaw (dynamic linking)..."
+	$(CC) $(CFLAGS) $(FLAGS) $(INCLUDES) -o $@ $^ $(LDLIBS) $(LDFLAGS)
+
+# Static build option (fallback)
+static: LDFLAGS = -static -Wl,--gc-sections -Wl,--strip-all
+static: $(SRCS)
+	@echo "Building MikroClaw (static linking)..."
+	$(CC) $(CFLAGS) $(FLAGS) $(INCLUDES) -o $(TARGET) $^ $(LDLIBS) $(LDFLAGS)
+
+clean:
+	rm -f $(TARGET)
+
+size: $(TARGET)
+	@echo "=== MikroClaw Binary Size ==="
+	@ls -lh $(TARGET)
+	@echo ""
+	@echo "=== Section Sizes ==="
+	@size $(TARGET) 2>/dev/null || echo "size not available"
+	@echo ""
+	@echo "=== File Info ==="
+	@file $(TARGET)
+	@echo ""
+	@echo "=== Dependencies ==="
+	@ldd $(TARGET) 2>/dev/null || echo "Static binary"
+
+test: $(TARGET)
+	./$(TARGET) --version
+
+# Development build
+dev: CFLAGS = -g -O0 -Wall -Wextra $(INCLUDES)
+dev: LDFLAGS =
+dev: $(SRCS)
+	$(CC) $(CFLAGS) $(FLAGS) $(INCLUDES) -o $(TARGET) $^ $(LDLIBS)
+
+.PHONY: all clean size test static dev
