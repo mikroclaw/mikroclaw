@@ -1,10 +1,15 @@
 #include "gateway_auth.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <fcntl.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+
+#include <mbedtls/ctr_drbg.h>
+#include <mbedtls/entropy.h>
 
 #define MAX_TOKENS 16
 
@@ -20,31 +25,103 @@ struct gateway_auth_ctx {
     struct token_entry entries[MAX_TOKENS];
 };
 
-static void random_string(char *out, size_t len) {
+static int random_fill_bytes(unsigned char *out, size_t len) {
+    int rc;
+    mbedtls_entropy_context entropy;
+    mbedtls_ctr_drbg_context ctr_drbg;
+    const char *pers = "mikroclaw-gateway-auth";
+
+    if (!out || len == 0) {
+        return -1;
+    }
+
+    mbedtls_entropy_init(&entropy);
+    mbedtls_ctr_drbg_init(&ctr_drbg);
+    rc = mbedtls_ctr_drbg_seed(&ctr_drbg,
+                               mbedtls_entropy_func,
+                               &entropy,
+                               (const unsigned char *)pers,
+                               strlen(pers));
+    if (rc == 0) {
+        rc = mbedtls_ctr_drbg_random(&ctr_drbg, out, len);
+        mbedtls_ctr_drbg_free(&ctr_drbg);
+        mbedtls_entropy_free(&entropy);
+        if (rc == 0) {
+            return 0;
+        }
+    }
+
+    mbedtls_ctr_drbg_free(&ctr_drbg);
+    mbedtls_entropy_free(&entropy);
+
+    {
+        int fd = open("/dev/urandom", O_RDONLY);
+        size_t offset = 0;
+
+        if (fd < 0) {
+            return -1;
+        }
+
+        while (offset < len) {
+            ssize_t got = read(fd, out + offset, len - offset);
+            if (got < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                close(fd);
+                return -1;
+            }
+            if (got == 0) {
+                close(fd);
+                return -1;
+            }
+            offset += (size_t)got;
+        }
+
+        close(fd);
+    }
+
+    return 0;
+}
+
+static int random_string(char *out, size_t len) {
     static const char *alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     size_t alpha_len = strlen(alphabet);
     size_t i;
+    unsigned char r[1];
 
     if (!out || len == 0) {
-        return;
+        return -1;
     }
+
     for (i = 0; i + 1 < len; i++) {
-        out[i] = alphabet[rand() % alpha_len];
+        if (random_fill_bytes(r, sizeof(r)) != 0) {
+            return -1;
+        }
+        out[i] = alphabet[r[0] % alpha_len];
     }
     out[len - 1] = '\0';
+    return 0;
 }
 
 struct gateway_auth_ctx *gateway_auth_init(int token_ttl_seconds) {
     struct gateway_auth_ctx *ctx = calloc(1, sizeof(*ctx));
-    unsigned int seed;
+    unsigned char bytes[6];
+    size_t i;
 
     if (!ctx) {
         return NULL;
     }
-    seed = (unsigned int)time(NULL) ^ (unsigned int)getpid();
-    srand(seed);
 
-    snprintf(ctx->pairing_code, sizeof(ctx->pairing_code), "%06u", (unsigned)(rand() % 1000000));
+    if (random_fill_bytes(bytes, sizeof(bytes)) != 0) {
+        gateway_auth_destroy(ctx);
+        return NULL;
+    }
+
+    for (i = 0; i < 6; i++) {
+        ctx->pairing_code[i] = (char)('0' + (bytes[i] % 10));
+    }
+    ctx->pairing_code[6] = '\0';
     ctx->token_ttl_seconds = token_ttl_seconds > 0 ? token_ttl_seconds : 300;
     return ctx;
 }
@@ -81,7 +158,9 @@ int gateway_auth_exchange_pairing_code(struct gateway_auth_ctx *ctx,
     for (i = 0; i < MAX_TOKENS; i++) {
         if (!ctx->entries[i].in_use || ctx->entries[i].expires_at <= now) {
             ctx->entries[i].in_use = 1;
-            random_string(ctx->entries[i].token, sizeof(ctx->entries[i].token));
+            if (random_string(ctx->entries[i].token, sizeof(ctx->entries[i].token)) != 0) {
+                return -1;
+            }
             ctx->entries[i].expires_at = now + ctx->token_ttl_seconds;
             snprintf(token_out, token_out_len, "%s", ctx->entries[i].token);
             return 0;

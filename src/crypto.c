@@ -3,11 +3,78 @@
 #include <mbedtls/base64.h>
 #include <mbedtls/gcm.h>
 #include <mbedtls/sha256.h>
+#include <mbedtls/ctr_drbg.h>
+#include <mbedtls/entropy.h>
 
 #include <stdio.h>
+#include <fcntl.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
+
+static int random_fill_bytes(unsigned char *out, size_t len) {
+    int rc;
+    mbedtls_entropy_context entropy;
+    mbedtls_ctr_drbg_context ctr_drbg;
+    const char *pers = "mikroclaw-crypto";
+
+    if (!out || len == 0) {
+        return -1;
+    }
+
+    mbedtls_entropy_init(&entropy);
+    mbedtls_ctr_drbg_init(&ctr_drbg);
+
+    rc = mbedtls_ctr_drbg_seed(&ctr_drbg,
+                               mbedtls_entropy_func,
+                               &entropy,
+                               (const unsigned char *)pers,
+                               strlen(pers));
+    if (rc == 0) {
+        rc = mbedtls_ctr_drbg_random(&ctr_drbg, out, len);
+    }
+
+    mbedtls_ctr_drbg_free(&ctr_drbg);
+    mbedtls_entropy_free(&entropy);
+
+    if (rc == 0) {
+        return 0;
+    }
+
+    {
+        int fd = open("/dev/urandom", O_RDONLY);
+        size_t offset = 0;
+
+        if (fd < 0) {
+            return -1;
+        }
+
+        while (offset < len) {
+            ssize_t got = read(fd, out + offset, len - offset);
+
+            if (got < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                close(fd);
+                return -1;
+            }
+
+            if (got == 0) {
+                close(fd);
+                return -1;
+            }
+
+            offset += (size_t)got;
+        }
+
+        close(fd);
+    }
+
+    return 0;
+}
 
 static int derive_key(const char *key_text, unsigned char key[32]) {
     if (!key_text || key_text[0] == '\0') {
@@ -17,13 +84,12 @@ static int derive_key(const char *key_text, unsigned char key[32]) {
     return 0;
 }
 
-static void nonce_fill(unsigned char nonce[12]) {
-    size_t i;
-    unsigned int seed = (unsigned int)time(NULL);
-    srand(seed);
-    for (i = 0; i < 12; i++) {
-        nonce[i] = (unsigned char)(rand() & 0xFF);
+static int nonce_fill(unsigned char nonce[12]) {
+    if (!nonce) {
+        return -1;
     }
+
+    return random_fill_bytes(nonce, 12);
 }
 
 int crypto_encrypt_env_value(const char *key_env, const char *plaintext, char *out, size_t out_len) {
@@ -52,7 +118,9 @@ int crypto_encrypt_env_value(const char *key_env, const char *plaintext, char *o
         return -1;
     }
 
-    nonce_fill(nonce);
+    if (nonce_fill(nonce) != 0) {
+        return -1;
+    }
 
     mbedtls_gcm_init(&gcm);
     if (mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, key, 256) != 0) {
