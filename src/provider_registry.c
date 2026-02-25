@@ -23,7 +23,11 @@ static const struct provider_entry g_providers[] = {
     {"fireworks", "https://api.fireworks.ai/inference", PROVIDER_AUTH_BEARER, "FIREWORKS_API_KEY"},
     {"perplexity", "https://api.perplexity.ai", PROVIDER_AUTH_BEARER, "PERPLEXITY_API_KEY"},
     {"cohere", "https://api.cohere.com/compatibility", PROVIDER_AUTH_API_KEY, "COHERE_API_KEY"},
-    {"bedrock", "https://bedrock-runtime.us-east-1.amazonaws.com", PROVIDER_AUTH_API_KEY, "BEDROCK_API_KEY"}
+    {"bedrock", "https://bedrock-runtime.us-east-1.amazonaws.com", PROVIDER_AUTH_API_KEY, "BEDROCK_API_KEY"},
+    {"kimi", "https://api.moonshot.cn/v1", PROVIDER_AUTH_BEARER, "MOONSHOT_API_KEY"},
+    {"minimax", "https://api.minimax.chat/v1", PROVIDER_AUTH_API_KEY, "MINIMAX_API_KEY"},
+    {"zai", "https://api.z.ai/v1", PROVIDER_AUTH_BEARER, "ZAI_API_KEY"},
+    {"synthetic", "https://api.synthetic.new/v1", PROVIDER_AUTH_BEARER, "SYNTHETIC_API_KEY"}
 };
 
 int provider_registry_get(const char *name, struct provider_config *out) {
