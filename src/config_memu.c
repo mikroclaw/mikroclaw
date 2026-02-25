@@ -1,48 +1,11 @@
 #include "config_memu.h"
 
 #include "memu_client.h"
+#include "json.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-static int extract_json_string(const char *json, const char *key, char *out, size_t out_len) {
-    char pattern[128];
-    const char *p;
-    const char *start;
-    const char *end;
-    size_t n;
-
-    if (!json || !key || !out || out_len == 0) {
-        return 0;
-    }
-
-    snprintf(pattern, sizeof(pattern), "\"%s\":\"", key);
-    p = strstr(json, pattern);
-    if (!p) {
-        return 0;
-    }
-
-    start = p + strlen(pattern);
-    end = start;
-    while (*end) {
-        if (*end == '"' && (end == start || end[-1] != '\\')) {
-            break;
-        }
-        end++;
-    }
-    if (*end != '"') {
-        return 0;
-    }
-
-    n = (size_t)(end - start);
-    if (n >= out_len) {
-        n = out_len - 1;
-    }
-    memcpy(out, start, n);
-    out[n] = '\0';
-    return n > 0;
-}
 
 int config_memu_load(const char *device_id, struct memu_boot_config *cfg) {
     const char *mock = getenv("MEMU_BOOT_CONFIG_JSON");

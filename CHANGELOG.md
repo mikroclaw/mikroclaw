@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2026.02.25:BETA] - 2026-02-25
+
+### Added
+- Safe buffer helper module (`safe_snprintf`, `buf_append`) with dedicated tests.
+- Per-target test runner in `Makefile` with `test-sanitize` and `coverage` targets.
+
+### Changed
+- JSON extraction paths now use shared parser-backed helpers across task/config handlers.
+- README release focus updated for the `2026.02.25:BETA` track.
+
+### Fixed
+- Parser comma-handling traversal in `vendor/jsmn.c` to avoid `test_config_memu` hang conditions.
+- JSON escape path now uses bounded copy logic.
+- Skill invocation and RouterOS firewall input handling tightened with security checks.
+
+### Security
+- Added stricter skill name/parameter validation and null-safe environment checks.
+- Escaped RouterOS firewall JSON fields before REST submission.
+
+---
+
 ## [0.3.0] - 2026-02-24
 
 ### Added

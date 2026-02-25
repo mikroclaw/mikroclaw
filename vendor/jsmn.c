@@ -150,8 +150,8 @@ int jsmn_parse(jsmn_parser *parser, const char *js, size_t len,
             case ',':
                 if (tokens != NULL && parser->toksuper != -1) {
                     int super = parser->toksuper;
-                    while (super != -1 && tokens[super].type != JSMN_OBJECT) {
-                        super = tokens[super].size;
+                    while (super != -1 && tokens[super].type != JSMN_OBJECT && tokens[super].type != JSMN_ARRAY) {
+                        super--;
                     }
                     parser->toksuper = super;
                 }

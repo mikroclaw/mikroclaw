@@ -49,6 +49,9 @@ const jsmntok_t *json_array_get(const struct json_ctx *ctx,
 int json_extract_string(const struct json_ctx *ctx, const jsmntok_t *token,
                         char *out, size_t max_len);
 
+int extract_json_string(const char *json, const char *key,
+                        char *out, size_t out_len);
+
 /* Escape string for JSON inclusion */
 int json_escape(const char *input, char *output, size_t output_size);
 

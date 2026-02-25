@@ -34,6 +34,12 @@ int main(void) {
     assert(function_call("shell_exec", "{\"command\":\"/bin/printf ok\"}", result, sizeof(result)) == 0);
     assert(strcmp(result, "ok") == 0);
 
+    assert(function_call("skill_invoke", "{\"skill\":\"demo;uname\",\"params\":\"x\"}", result, sizeof(result)) != 0);
+    assert(strstr(result, "invalid skill") != NULL);
+
+    assert(function_call("skill_invoke", "{\"skill\":\"demo\",\"params\":\"x;uname\"}", result, sizeof(result)) != 0);
+    assert(strstr(result, "invalid skill") != NULL);
+
     assert(function_call("file_write", "{\"path\":\"../escape.txt\",\"content\":\"x\"}", result, sizeof(result)) != 0);
     assert(strstr(result, "invalid path") != NULL);
 

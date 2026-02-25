@@ -170,6 +170,8 @@ int routeros_firewall_allow_subnets(struct routeros_ctx *ctx, const char *commen
                                     const char *subnets_csv, int port) {
     char body[1024];
     char out[2048];
+    char esc_comment[256];
+    char esc_subnets[256];
     const char *c = (comment && comment[0]) ? comment : "mikroclaw-auto";
     const char *s = (subnets_csv && subnets_csv[0]) ? subnets_csv : "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16";
 
@@ -177,9 +179,16 @@ int routeros_firewall_allow_subnets(struct routeros_ctx *ctx, const char *commen
         return -1;
     }
 
+    if (json_escape(c, esc_comment, sizeof(esc_comment)) != 0) {
+        return -1;
+    }
+    if (json_escape(s, esc_subnets, sizeof(esc_subnets)) != 0) {
+        return -1;
+    }
+
     snprintf(body, sizeof(body),
              "{\"chain\":\"input\",\"action\":\"accept\",\"protocol\":\"tcp\",\"dst-port\":\"%d\",\"src-address-list\":\"%s\",\"comment\":\"%s\"}",
-             port, s, c);
+             port, esc_subnets, esc_comment);
     return routeros_post(ctx, "/rest/ip/firewall/filter/add", body, out, sizeof(out));
 }
 

@@ -4,38 +4,11 @@
 #include "../provider_registry.h"
 #include "../routeros.h"
 
+#include "../json.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-static int extract_json_string(const char *json, const char *key, char *out, size_t out_len) {
-    char pattern[64];
-    const char *p;
-    const char *start;
-    const char *end;
-    size_t n;
-
-    if (!json || !key || !out || out_len == 0) {
-        return -1;
-    }
-    snprintf(pattern, sizeof(pattern), "\"%s\":\"", key);
-    p = strstr(json, pattern);
-    if (!p) {
-        return -1;
-    }
-    start = p + strlen(pattern);
-    end = strchr(start, '"');
-    if (!end) {
-        return -1;
-    }
-    n = (size_t)(end - start);
-    if (n >= out_len) {
-        n = out_len - 1;
-    }
-    memcpy(out, start, n);
-    out[n] = '\0';
-    return 0;
-}
 
 static void append_text(char *dst, size_t dst_len, const char *text) {
     size_t used;

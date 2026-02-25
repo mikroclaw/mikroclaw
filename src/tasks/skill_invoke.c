@@ -1,36 +1,8 @@
 #include "../task_handlers.h"
 
+#include "../json.h"
 #include <stdio.h>
 #include <string.h>
-
-static int extract_json_string(const char *json, const char *key, char *out, size_t out_len) {
-    char pattern[64];
-    const char *p;
-    const char *start;
-    const char *end;
-    size_t n;
-
-    if (!json || !key || !out || out_len == 0) {
-        return -1;
-    }
-    snprintf(pattern, sizeof(pattern), "\"%s\":\"", key);
-    p = strstr(json, pattern);
-    if (!p) {
-        return -1;
-    }
-    start = p + strlen(pattern);
-    end = strchr(start, '"');
-    if (!end) {
-        return -1;
-    }
-    n = (size_t)(end - start);
-    if (n >= out_len) {
-        n = out_len - 1;
-    }
-    memcpy(out, start, n);
-    out[n] = '\0';
-    return 0;
-}
 
 int task_handle_skill_invoke(const char *params_json, char *result, size_t result_len) {
     char skill[128];

@@ -118,6 +118,28 @@ int json_extract_string(const struct json_ctx *ctx, const jsmntok_t *token,
     return len;
 }
 
+int extract_json_string(const char *json, const char *key,
+                       char *out, size_t out_len) {
+    struct json_ctx ctx;
+    const jsmntok_t *token;
+
+    if (!json || !key || !out || out_len == 0) {
+        return -1;
+    }
+
+    json_init(&ctx);
+    if (json_parse(&ctx, json, strlen(json)) < 0) {
+        return -1;
+    }
+
+    token = json_get_token(&ctx, key);
+    if (!token) {
+        return -1;
+    }
+
+    return json_extract_string(&ctx, token, out, out_len);
+}
+
 /* Escape a string for safe JSON inclusion
  * Replaces: " -> \", \ -> \\, control chars -> \b, \f, \n, \r, \t or \uXXXX
  * Returns: 0 on success, -1 if output buffer too small
@@ -156,7 +178,7 @@ int json_escape(const char *input, char *output, size_t output_size) {
                 output[0] = '\0';
                 return -1; /* Buffer too small */
             }
-            strcpy(output + j, escape);
+            memcpy(output + j, escape, escape_len);
             j += escape_len;
         } else {
             if (j + 1 >= output_size) {

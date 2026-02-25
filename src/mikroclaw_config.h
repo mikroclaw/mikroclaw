@@ -7,7 +7,7 @@
 #define MIKROCLAW_CONFIG_H
 
 /* Version */
-#define MIKROCLAW_VERSION "2026.2.24"
+#define MIKROCLAW_VERSION "2026.02.25:BETA"
 #define MIKROCLAW_NAME    "MikroClaw"
 
 /* ============================================================================

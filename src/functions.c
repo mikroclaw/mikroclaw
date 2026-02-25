@@ -3,11 +3,13 @@
 #include "memu_client.h"
 #include "json.h"
 #include "routeros.h"
+#include "buf.h"
 #ifndef DISABLE_WEB_SEARCH
 #include "http_client.h"
 #endif
 
 #include <dirent.h>
+#include <ctype.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -347,6 +349,33 @@ static int fn_skill_list(const char *args_json, char *result_buf, size_t result_
     return 0;
 }
 
+static int skill_name_valid(const char *skill) {
+    size_t i;
+
+    if (!skill || skill[0] == '\0') {
+        return 0;
+    }
+    if (strstr(skill, "..") != NULL) {
+        return 0;
+    }
+    for (i = 0; skill[i] != '\0'; i++) {
+        unsigned char ch = (unsigned char)skill[i];
+        if (!(isalnum(ch) || ch == '_' || ch == '-' || ch == '.')) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int skill_params_safe(const char *params) {
+    const char *invalid = "&;|`$><\n\r\\\"'";
+
+    if (!params) {
+        return 1;
+    }
+    return strpbrk(params, invalid) == NULL;
+}
+
 static int fn_skill_invoke(const char *args_json, char *result_buf, size_t result_len) {
     char skill[128];
     char params[256];
@@ -365,51 +394,62 @@ static int fn_skill_invoke(const char *args_json, char *result_buf, size_t resul
         params[0] = '\0';
     }
 
-    if (getenv("SKILLS_MODE") && strcmp(getenv("SKILLS_MODE"), "routeros") == 0) {
-        const char *host = getenv("ROUTER_HOST");
-        const char *user = getenv("ROUTER_USER");
-        const char *pass = getenv("ROUTER_PASS");
-        struct routeros_ctx *ros;
+    if (!skill_name_valid(skill)) {
+        snprintf(result_buf, result_len, "error: invalid skill name");
+        return -1;
+    }
+    if (!skill_params_safe(params)) {
+        snprintf(result_buf, result_len, "error: invalid skill params");
+        return -1;
+    }
 
-        if (!host || !user || !pass) {
-            snprintf(result_buf, result_len, "error: missing router credentials");
-            return -1;
-        }
+    {
+        const char *skills_mode = getenv("SKILLS_MODE");
+        if (skills_mode && strcmp(skills_mode, "routeros") == 0) {
+            const char *host = getenv("ROUTER_HOST");
+            const char *user = getenv("ROUTER_USER");
+            const char *pass = getenv("ROUTER_PASS");
+            struct routeros_ctx *ros;
 
-        snprintf(skill_path, sizeof(skill_path), "./skills/%s", skill);
-        fp = fopen(skill_path, "r");
-        if (!fp) {
-            snprintf(result_buf, result_len, "error: skill not found");
-            return -1;
-        }
-        script_len = fread(script_buf, 1, sizeof(script_buf) - 1, fp);
-        fclose(fp);
-        script_buf[script_len] = '\0';
-
-        if (params[0] != '\0' && script_len + strlen(params) + 4 < sizeof(script_buf)) {
-            int cmd_len = snprintf(script_buf + script_len,
-                                  sizeof(script_buf) - script_len,
-                                  "\n# %s",
-                                  params);
-            if (cmd_len < 0 || (size_t)cmd_len >= (sizeof(script_buf) - script_len)) {
-                snprintf(result_buf, result_len, "error: command too long");
+            if (!host || !user || !pass) {
+                snprintf(result_buf, result_len, "error: missing router credentials");
                 return -1;
             }
-            script_len += (size_t)cmd_len;
-        }
 
-        ros = routeros_init(host, 443, user, pass);
-        if (!ros) {
-            snprintf(result_buf, result_len, "error: router init failed");
-            return -1;
-        }
-        if (routeros_script_run_inline(ros, script_buf, result_buf, result_len) != 0) {
+            snprintf(skill_path, sizeof(skill_path), "./skills/%s", skill);
+            fp = fopen(skill_path, "r");
+            if (!fp) {
+                snprintf(result_buf, result_len, "error: skill not found");
+                return -1;
+            }
+            script_len = fread(script_buf, 1, sizeof(script_buf) - 1, fp);
+            fclose(fp);
+            script_buf[script_len] = '\0';
+
+            if (params[0] != '\0' && script_len + strlen(params) + 4 < sizeof(script_buf)) {
+                int cmd_len = snprintf(script_buf + script_len,
+                                       sizeof(script_buf) - script_len,
+                                       "\n# %s",
+                                       params);
+                if (cmd_len < 0 || (size_t)cmd_len >= (sizeof(script_buf) - script_len)) {
+                    snprintf(result_buf, result_len, "error: command too long");
+                    return -1;
+                }
+            }
+
+            ros = routeros_init(host, 443, user, pass);
+            if (!ros) {
+                snprintf(result_buf, result_len, "error: router init failed");
+                return -1;
+            }
+            if (routeros_script_run_inline(ros, script_buf, result_buf, result_len) != 0) {
+                routeros_destroy(ros);
+                snprintf(result_buf, result_len, "error: router skill run failed");
+                return -1;
+            }
             routeros_destroy(ros);
-            snprintf(result_buf, result_len, "error: router skill run failed");
-            return -1;
+            return 0;
         }
-        routeros_destroy(ros);
-        return 0;
     }
 
     snprintf(cmd, sizeof(cmd), "./skills/%s %s", skill, params);
@@ -514,10 +554,21 @@ int function_register_with_schema(const char *name, const char *description,
         return -1;
     }
 
-    snprintf(g_registry[g_registry_count].name, sizeof(g_registry[g_registry_count].name), "%s", name);
-    snprintf(g_registry[g_registry_count].description, sizeof(g_registry[g_registry_count].description), "%s", description);
-    snprintf(g_registry[g_registry_count].schema, sizeof(g_registry[g_registry_count].schema), "%s",
-             schema_json ? schema_json : "{\"type\":\"object\",\"properties\":{}}");
+    if (safe_snprintf(g_registry[g_registry_count].name,
+                      sizeof(g_registry[g_registry_count].name),
+                      "%s", name) != 0) {
+        return -1;
+    }
+    if (safe_snprintf(g_registry[g_registry_count].description,
+                      sizeof(g_registry[g_registry_count].description),
+                      "%s", description) != 0) {
+        return -1;
+    }
+    if (safe_snprintf(g_registry[g_registry_count].schema,
+                      sizeof(g_registry[g_registry_count].schema),
+                      "%s", schema_json ? schema_json : "{\"type\":\"object\",\"properties\":{}}") != 0) {
+        return -1;
+    }
     g_registry[g_registry_count].fn = fn;
     g_registry_count++;
     return 0;

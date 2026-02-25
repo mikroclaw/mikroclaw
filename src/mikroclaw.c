@@ -10,6 +10,7 @@
 #include "gateway_auth.h"
 #include "functions.h"
 #include "memu_client.h"
+#include "json.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -113,35 +114,6 @@ static int parse_request_line(const char *request, char *method, size_t method_l
     }
     (void)method_len;
     (void)path_len;
-    return 0;
-}
-
-static int extract_json_string(const char *json, const char *key, char *out, size_t out_len) {
-    char pattern[64];
-    const char *p;
-    const char *start;
-    const char *end;
-    size_t n;
-
-    if (!json || !key || !out || out_len == 0) {
-        return -1;
-    }
-    snprintf(pattern, sizeof(pattern), "\"%s\":\"", key);
-    p = strstr(json, pattern);
-    if (!p) {
-        return -1;
-    }
-    start = p + strlen(pattern);
-    end = strchr(start, '"');
-    if (!end) {
-        return -1;
-    }
-    n = (size_t)(end - start);
-    if (n >= out_len) {
-        n = out_len - 1;
-    }
-    memcpy(out, start, n);
-    out[n] = '\0';
     return 0;
 }
 
@@ -538,23 +510,26 @@ int mikroclaw_run(struct mikroclaw_ctx *ctx) {
                 }
             }
 
-            if (getenv("PAIRING_REQUIRED") && strcmp(getenv("PAIRING_REQUIRED"), "1") == 0) {
-                char bearer[128];
-                char response[256];
-                if (strcmp(path, "/health") != 0 && strcmp(path, "/pair") != 0) {
-                    if (!ctx->gateway_auth ||
-                        gateway_auth_extract_bearer(message, bearer, sizeof(bearer)) != 0 ||
-                        gateway_auth_validate_token(ctx->gateway_auth, bearer) != 1) {
-                        if (ctx->rate_limit) {
-                            rate_limit_record_auth_failure(ctx->rate_limit, client_ip);
+            {
+                const char *pairing_required = getenv("PAIRING_REQUIRED");
+                if (pairing_required && strcmp(pairing_required, "1") == 0) {
+                    char bearer[128];
+                    char response[256];
+                    if (strcmp(path, "/health") != 0 && strcmp(path, "/pair") != 0) {
+                        if (!ctx->gateway_auth ||
+                            gateway_auth_extract_bearer(message, bearer, sizeof(bearer)) != 0 ||
+                            gateway_auth_validate_token(ctx->gateway_auth, bearer) != 1) {
+                            if (ctx->rate_limit) {
+                                rate_limit_record_auth_failure(ctx->rate_limit, client_ip);
+                            }
+                            build_http_json_response(401, "Unauthorized", "{\"error\":\"unauthorized\"}",
+                                                     response, sizeof(response));
+                            gateway_respond(client_fd, response);
+                            return MC_OK;
                         }
-                        build_http_json_response(401, "Unauthorized", "{\"error\":\"unauthorized\"}",
-                                                 response, sizeof(response));
-                        gateway_respond(client_fd, response);
-                        return MC_OK;
-                    }
-                    if (ctx->rate_limit) {
-                        rate_limit_record_auth_success(ctx->rate_limit, client_ip);
+                        if (ctx->rate_limit) {
+                            rate_limit_record_auth_success(ctx->rate_limit, client_ip);
+                        }
                     }
                 }
             }

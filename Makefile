@@ -3,6 +3,10 @@
 
 CC = gcc
 
+SANITIZE ?= 0
+COVERAGE ?= 0
+WERROR ?= 0
+
 # mbedTLS - custom minimal build or system
 USE_CUSTOM_MBEDTLS ?= 0
 CUSTOM_MBEDTLS_PREFIX ?= third_party/mbedtls
@@ -22,8 +26,27 @@ CFLAGS = -Os -Wall -Wextra -ffunction-sections -fdata-sections
 CFLAGS += -fmerge-all-constants -fno-stack-protector
 CFLAGS += -I. -Isrc -Ivendor $(MBEDTLS_CFLAGS) $(CURL_CFLAGS)
 
+ifeq ($(SANITIZE),1)
+SANITIZE_FLAGS = -fsanitize=address,undefined -fno-omit-frame-pointer
+else
+SANITIZE_FLAGS =
+endif
+
+ifeq ($(COVERAGE),1)
+COVERAGE_FLAGS = --coverage
+else
+COVERAGE_FLAGS =
+endif
+
+CFLAGS += $(SANITIZE_FLAGS) $(COVERAGE_FLAGS)
+
+ifeq ($(WERROR),1)
+CFLAGS += -Werror -Wformat -Wformat-security
+endif
+
 # Linker flags
 LDFLAGS = -Wl,--gc-sections -Wl,--strip-all
+LDFLAGS += $(SANITIZE_FLAGS) $(COVERAGE_FLAGS)
 
 # mbedTLS libraries
 LDLIBS = $(MBEDTLS_LIBS) $(CURL_LIBS)
@@ -48,9 +71,10 @@ SRCS = \
     src/memu_client.c \
     src/memu_client_stub.c \
     src/config_memu.c \
-    src/config_validate.c \
-    src/functions.c \
-    src/http_client.c \
+	src/config_validate.c \
+	src/functions.c \
+	src/buf.c \
+	src/http_client.c \
     src/base64.c \
     src/crypto.c \
     src/routeros.c \
@@ -82,7 +106,7 @@ SRCS = \
 
 TARGET = mikroclaw
 
-.PHONY: all clean size test install static-mbedtls mbedtls-minimal mikroclaw-minimal static-musl mikroclaw-static-musl mikrotik-docker cppcheck analyze
+.PHONY: all clean size test test-sanitize coverage install static-mbedtls mbedtls-minimal mikroclaw-minimal static-musl mikroclaw-static-musl mikrotik-docker cppcheck analyze
 
 all: $(TARGET) size
 
@@ -99,10 +123,144 @@ size: $(TARGET)
 	@echo ""
 	@size $(TARGET) 2>/dev/null || echo "size command not available"
 
+TEST_BINARIES = \
+	test_tls \
+	test_json_escape \
+	test_buf \
+	test_tls_verify \
+	test_base64 \
+	test_routeros_auth \
+	test_json_hardening \
+	test_telegram_parse \
+	test_storage_local_path \
+	test_discord \
+	test_slack \
+	test_discord_inbound \
+	test_slack_inbound \
+	test_functions \
+	test_memu_client \
+	test_config_memu \
+	test_gateway_auth \
+	test_rate_limit \
+	test_gateway_port \
+	test_task_queue \
+	test_subagent \
+	test_cli \
+	test_config_validate \
+	test_crypto \
+	test_identity \
+	test_channel_supervisor \
+	test_provider_registry \
+	test_llm_stream \
+	test_allowlist \
+	test_schema \
+	test_tool_security
+
+TEST_SRCS_test_tls = tests/test_tls.c src/http.c src/json.c src/base64.c vendor/jsmn.c vendor/mbedtls_integration.c
+TEST_SRCS_test_json_escape = tests/test_json_escape.c src/json.c src/base64.c vendor/jsmn.c
+TEST_SRCS_test_buf = tests/test_buf.c src/buf.c
+TEST_SRCS_test_tls_verify = tests/test_tls_verify.c vendor/mbedtls_integration.c src/http.c src/json.c vendor/jsmn.c
+TEST_SRCS_test_base64 = tests/test_base64.c src/base64.c
+TEST_SRCS_test_routeros_auth = tests/test_routeros_auth.c src/routeros.c src/base64.c src/http.c src/json.c vendor/jsmn.c vendor/mbedtls_integration.c
+TEST_SRCS_test_json_hardening = tests/test_json_hardening.c src/channels/telegram.c src/channels/allowlist.c src/cron.c src/routeros.c src/base64.c src/http.c src/json.c vendor/jsmn.c vendor/mbedtls_integration.c
+TEST_SRCS_test_telegram_parse = tests/test_telegram_parse.c src/channels/telegram.c src/channels/allowlist.c src/routeros.c src/base64.c src/http.c src/json.c vendor/jsmn.c vendor/mbedtls_integration.c
+TEST_SRCS_test_storage_local_path = tests/test_storage_local_path.c src/storage_local.c
+TEST_SRCS_test_discord = tests/test_discord.c src/channels/discord.c src/channels/allowlist.c src/http_client.c src/json.c vendor/jsmn.c
+TEST_SRCS_test_slack = tests/test_slack.c src/channels/slack.c src/channels/allowlist.c src/http_client.c src/json.c vendor/jsmn.c
+TEST_SRCS_test_discord_inbound = tests/test_discord_inbound.c src/channels/discord.c src/channels/allowlist.c src/http_client.c src/json.c vendor/jsmn.c
+TEST_SRCS_test_slack_inbound = tests/test_slack_inbound.c src/channels/slack.c src/channels/allowlist.c src/http_client.c src/json.c vendor/jsmn.c
+TEST_SRCS_test_functions = tests/test_functions.c src/functions.c src/buf.c src/memu_client.c src/routeros.c src/http.c src/http_client.c src/json.c src/base64.c src/channels/allowlist.c src/llm_stream.c src/provider_registry.c vendor/jsmn.c vendor/mbedtls_integration.c
+TEST_SRCS_test_memu_client = tests/test_memu_client.c src/memu_client.c src/json.c vendor/jsmn.c
+TEST_SRCS_test_config_memu = tests/test_config_memu.c src/config_memu.c src/memu_client.c src/json.c vendor/jsmn.c
+TEST_SRCS_test_gateway_auth = tests/test_gateway_auth.c src/gateway_auth.c vendor/mbedtls_integration.c
+TEST_SRCS_test_rate_limit = tests/test_rate_limit.c src/rate_limit.c
+TEST_SRCS_test_gateway_port = tests/test_gateway_port.c src/gateway.c
+TEST_SRCS_test_task_queue = tests/test_task_queue.c src/task_queue.c
+TEST_SRCS_test_subagent = tests/test_subagent.c src/subagent.c src/worker_pool.c src/task_queue.c src/task_handlers.c src/tasks/investigate.c src/tasks/analyze.c src/tasks/summarize.c src/tasks/skill_invoke.c src/memu_client_stub.c src/routeros.c src/llm.c src/llm_stream.c src/provider_registry.c src/http.c src/json.c src/base64.c vendor/jsmn.c vendor/mbedtls_integration.c
+TEST_SRCS_test_cli = tests/test_cli.c src/cli.c
+TEST_SRCS_test_config_validate = tests/test_config_validate.c src/config_validate.c
+TEST_SRCS_test_crypto = tests/test_crypto.c src/crypto.c
+TEST_SRCS_test_identity = tests/test_identity.c src/identity.c src/memu_client.c src/json.c src/http_client.c src/base64.c vendor/jsmn.c vendor/mbedtls_integration.c
+TEST_SRCS_test_channel_supervisor = tests/test_channel_supervisor.c src/channel_supervisor.c
+TEST_SRCS_test_provider_registry = tests/test_provider_registry.c src/provider_registry.c
+TEST_SRCS_test_llm_stream = tests/test_llm_stream.c src/llm_stream.c
+TEST_SRCS_test_allowlist = tests/test_allowlist.c src/channels/allowlist.c
+TEST_SRCS_test_schema = tests/test_schema.c src/functions.c src/buf.c src/memu_client_stub.c src/routeros.c src/base64.c src/http.c src/json.c vendor/jsmn.c vendor/mbedtls_integration.c
+TEST_SRCS_test_tool_security = tests/test_tool_security.c src/functions.c src/buf.c src/memu_client_stub.c src/routeros.c src/base64.c src/http.c src/json.c vendor/jsmn.c vendor/mbedtls_integration.c
+
+TEST_DEFS_test_schema = -DDISABLE_WEB_SEARCH -UUSE_MEMU_CLOUD
+TEST_DEFS_test_tool_security = -DDISABLE_WEB_SEARCH -UUSE_MEMU_CLOUD
+TEST_DEFS_test_subagent = -UUSE_MEMU_CLOUD
+
+TEST_LIBS_test_tls = -lmbedtls -lmbedx509 -lmbedcrypto
+TEST_LIBS_test_tls_verify = -lmbedtls -lmbedx509 -lmbedcrypto
+TEST_LIBS_test_routeros_auth = -lmbedtls -lmbedx509 -lmbedcrypto
+TEST_LIBS_test_gateway_auth = -lmbedtls -lmbedx509 -lmbedcrypto
+TEST_LIBS_test_json_hardening = -lmbedtls -lmbedx509 -lmbedcrypto
+TEST_LIBS_test_telegram_parse = -lmbedtls -lmbedx509 -lmbedcrypto
+TEST_LIBS_test_discord = -lcurl
+TEST_LIBS_test_slack = -lcurl
+TEST_LIBS_test_discord_inbound = -lcurl
+TEST_LIBS_test_slack_inbound = -lcurl
+TEST_LIBS_test_functions = -lcurl -lmbedtls -lmbedx509 -lmbedcrypto
+TEST_LIBS_test_memu_client = -lcurl
+TEST_LIBS_test_config_memu = -lcurl
+TEST_LIBS_test_identity = -lcurl -lmbedtls -lmbedx509 -lmbedcrypto
+TEST_LIBS_test_subagent = -lmbedtls -lmbedx509 -lmbedcrypto
+TEST_LIBS_test_schema = -lmbedtls -lmbedx509 -lmbedcrypto
+TEST_LIBS_test_tool_security = -lmbedtls -lmbedx509 -lmbedcrypto
+TEST_LIBS_test_crypto = -lmbedtls -lmbedx509 -lmbedcrypto
+
+TEST_RUN_ENV_test_functions = MEMU_MOCK_RETRIEVE_TEXT=v
+TEST_RUN_ENV_test_crypto = MEMU_ENCRYPTION_KEY=test-key
+TEST_RUN_ENV_test_identity = MEMU_MOCK_RETRIEVE_TEXT=id
+
+TEST_TIMEOUT_SECONDS ?= 120
+
+define RUN_TEST_CASE
+	echo "Compiling $(1)..."; \
+	$(CC) $(CFLAGS) $(FLAGS) $(TEST_DEFS_$(1)) -I. -Isrc $(TEST_SRCS_$(1)) -o $(1) $(TEST_LIBS_$(1)); \
+	if [ $$? -ne 0 ]; then \
+		echo "FAIL [compile]: $(1)"; \
+		failed=$$((failed + 1)); \
+	else \
+		echo "PASS [compile]: $(1)"; \
+		$(TEST_RUN_ENV_$(1)) timeout $(TEST_TIMEOUT_SECONDS) ./$(1) >/dev/null 2>&1; \
+		if [ $$? -ne 0 ]; then \
+			echo "FAIL [run]: $(1)"; \
+			failed=$$((failed + 1)); \
+		else \
+			echo "PASS [run]: $(1)"; \
+		fi; \
+	fi
+
+endef
+
 test: $(TARGET)
-	@echo "Running tests..."
-	./test_tls 2>/dev/null && echo "PASS TLS test" || echo "FAIL TLS test"
-	./test_json_escape 2>/dev/null && echo "PASS JSON escape test" || echo "FAIL JSON escape test"
+	@failed=0; \
+	$(foreach test,$(TEST_BINARIES),$(call RUN_TEST_CASE,$(test))) \
+	if [ "$${failed:-0}" -eq 0 ]; then \
+		echo "All tests passed"; \
+		exit 0; \
+	else \
+		echo "Tests failed: $${failed:-0}"; \
+		exit 1; \
+	fi
+
+test-sanitize: SANITIZE=1
+test-sanitize: test
+
+coverage: COVERAGE=1
+coverage: clean
+	@mkdir -p coverage_html
+	@$(MAKE) COVERAGE=1 test
+	@if command -v lcov >/dev/null 2>&1 && command -v genhtml >/dev/null 2>&1; then \
+		lcov --capture --directory . --output-file coverage.info >/dev/null 2>&1; \
+		genhtml coverage.info --output-directory coverage_html >/dev/null 2>&1; \
+		echo "Coverage report generated at coverage_html/index.html"; \
+	else \
+		echo "lcov/genhtml not available; raw gcov artifacts generated"; \
+	fi
 
 cppcheck:
 	@mkdir -p build

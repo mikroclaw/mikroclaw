@@ -9,7 +9,7 @@ Ultra-lightweight AI agent runtime for MikroTik RouterOS container deployments.
 
 ## Current Release Focus
 
-This repository is configured for a publish-ready `v0.3.0` track with:
+This repository is currently prepared for release `2026.02.25:BETA` with:
 
 - Provider registry (13 named providers)
 - LLM streaming parser support
@@ -24,6 +24,12 @@ This repository is configured for a publish-ready `v0.3.0` track with:
 ```bash
 make clean && make
 ./scripts/verify-release.sh
+```
+
+Check runtime version:
+
+```bash
+./mikroclaw --version
 ```
 
 Artifacts:

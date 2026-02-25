@@ -423,23 +423,29 @@ int main(int argc, char **argv) {
             printf("Pairing code: %s\n", gateway_auth_pairing_code(ctx.gateway_auth));
         }
 
-        if (getenv("ROUTEROS_FIREWALL") && strcmp(getenv("ROUTEROS_FIREWALL"), "1") == 0) {
-            const char *subnets = getenv_or("ROUTEROS_ALLOW_SUBNETS", "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16");
-            if (ctx.ros && routeros_firewall_allow_subnets(ctx.ros, "mikroclaw-auto", subnets, bound_port) == 0) {
-                firewall_added = 1;
+        {
+            const char *routeros_firewall = getenv("ROUTEROS_FIREWALL");
+            if (routeros_firewall && strcmp(routeros_firewall, "1") == 0) {
+                const char *subnets = getenv_or("ROUTEROS_ALLOW_SUBNETS", "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16");
+                if (ctx.ros && routeros_firewall_allow_subnets(ctx.ros, "mikroclaw-auto", subnets, bound_port) == 0) {
+                    firewall_added = 1;
+                }
             }
         }
 
-        if (getenv("HEARTBEAT_ROUTEROS") && strcmp(getenv("HEARTBEAT_ROUTEROS"), "1") == 0) {
-            char sched_resp[1024];
-            char on_event[512];
-            const char *interval = getenv_or("HEARTBEAT_INTERVAL", "5m");
-            snprintf(on_event, sizeof(on_event),
-                     "/tool fetch url=\"http://%s:%d/health/heartbeat\" keep-result=no",
-                     gateway_bind, bound_port);
-            if (ctx.ros && routeros_scheduler_add(ctx.ros, "mikroclaw-heartbeat", interval,
-                                                  on_event, sched_resp, sizeof(sched_resp)) == 0) {
-                scheduler_added = 1;
+        {
+            const char *heartbeat_routeros = getenv("HEARTBEAT_ROUTEROS");
+            if (heartbeat_routeros && strcmp(heartbeat_routeros, "1") == 0) {
+                char sched_resp[1024];
+                char on_event[512];
+                const char *interval = getenv_or("HEARTBEAT_INTERVAL", "5m");
+                snprintf(on_event, sizeof(on_event),
+                         "/tool fetch url=\"http://%s:%d/health/heartbeat\" keep-result=no",
+                         gateway_bind, bound_port);
+                if (ctx.ros && routeros_scheduler_add(ctx.ros, "mikroclaw-heartbeat", interval,
+                                                      on_event, sched_resp, sizeof(sched_resp)) == 0) {
+                    scheduler_added = 1;
+                }
             }
         }
     }
