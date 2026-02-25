@@ -128,21 +128,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## Future Roadmap
-
-### [0.4.0] - Planned
-- Lua skill runtime
-- Skill marketplace (cloud-based)
-- Discord/Slack channels
-- Package managers (Homebrew, APT)
-
-### [1.0.0] - Planned
-- Production hardened
-- Full test coverage
-- Security audit passed
-- Enterprise features
-
----
+## Contributing
 
 ## Contributing
 

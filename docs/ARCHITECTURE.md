@@ -12,6 +12,39 @@ Inbound Channel/Gateway
     -> Tool/function execution
     -> Response routing (channel or gateway)
     -> Optional memU persistence
+]
+
+## Data Flow
+
+```
+Inbound Request (Telegram/Discord/Slack/Direct)
+        |
+        v
+  [Allowlist Check] ----(rejected)----> X
+        |
+        v
+  [Gateway Auth] ----(unauthorized)----> 403
+        |
+        v
+  [Rate Limit] ----(throttled)----> 429
+        |
+        v
+[LLM Provider] (with reliable fallback chain)
+        |
+        v
+[Tool Router] -----> [RouterOS API]
+        |                [shell_exec]
+        |                [file_read/write]
+        |                [web_search/scrape]
+        |                [memory_*]
+        v
+  [memU Cloud] <----(persistence)----
+        |
+        v
+   Response Routing (channel or gateway)
+```
+
+## Core Runtime
 ```
 
 ## Core Runtime

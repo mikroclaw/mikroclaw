@@ -1,5 +1,9 @@
 # Security Policy
 
+**Project Website**: [www.mikroclaw.com](https://www.mikroclaw.com)
+
+## Supported Versions
+
 ## Supported Versions
 
 | Version | Supported |
@@ -8,6 +12,13 @@
 | < 0.3.0 | No |
 
 ## Reporting a Vulnerability
+
+Report security issues privately before public disclosure:
+
+- **GitHub Security Advisories**: https://github.com/MIKROCLAW/mikroclaw/security/advisories
+- **Email**: security@mikroclaw.dev (PGP key available upon request)
+
+Please allow maintainers reasonable time to respond before any public disclosure.
 
 Report security issues privately to the maintainers before public disclosure.
 
