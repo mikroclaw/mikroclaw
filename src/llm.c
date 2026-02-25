@@ -147,10 +147,11 @@ int llm_chat(struct llm_ctx *ctx,
     }
     
     /* Extract content */
-    const char *content = json_get_string(&json, "content", NULL);
+    const jsmntok_t *content = json_get_token(&json, "content");
     if (content) {
-        strncpy(response, content, max_response - 1);
-        response[max_response - 1] = '\0';
+        if (json_extract_string(&json, content, response, max_response) < 0) {
+            response[0] = '\0';
+        }
     } else {
         response[0] = '\0';
     }
