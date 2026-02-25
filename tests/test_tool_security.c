@@ -21,6 +21,19 @@ int main(void) {
     assert(function_call("shell_exec", "{\"command\":\"cat /etc/passwd\"}", result, sizeof(result)) != 0);
     assert(strstr(result, "not allowed") != NULL);
 
+    assert(function_call("shell_exec", "{\"command\":\"printf ../etc/passwd\"}", result, sizeof(result)) != 0);
+    assert(strstr(result, "not allowed") != NULL);
+
+    assert(function_call("shell_exec", "{\"command\":\"printf ..\\etc\\passwd\"}", result, sizeof(result)) != 0);
+    assert(strstr(result, "not allowed") != NULL);
+
+    assert(function_call("shell_exec", "{\"command\":\"/bin/printf ok\"}", result, sizeof(result)) != 0);
+    assert(strstr(result, "not allowed") != NULL);
+
+    setenv("ALLOWED_SHELL_CMDS", "printf,/bin/printf", 1);
+    assert(function_call("shell_exec", "{\"command\":\"/bin/printf ok\"}", result, sizeof(result)) == 0);
+    assert(strcmp(result, "ok") == 0);
+
     assert(function_call("file_write", "{\"path\":\"../escape.txt\",\"content\":\"x\"}", result, sizeof(result)) != 0);
     assert(strstr(result, "invalid path") != NULL);
 
