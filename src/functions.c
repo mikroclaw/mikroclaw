@@ -387,8 +387,15 @@ static int fn_skill_invoke(const char *args_json, char *result_buf, size_t resul
         script_buf[script_len] = '\0';
 
         if (params[0] != '\0' && script_len + strlen(params) + 4 < sizeof(script_buf)) {
-            strcat(script_buf, "\n# ");
-            strcat(script_buf, params);
+            int cmd_len = snprintf(script_buf + script_len,
+                                  sizeof(script_buf) - script_len,
+                                  "\n# %s",
+                                  params);
+            if (cmd_len < 0 || (size_t)cmd_len >= (sizeof(script_buf) - script_len)) {
+                snprintf(result_buf, result_len, "error: command too long");
+                return -1;
+            }
+            script_len += (size_t)cmd_len;
         }
 
         ros = routeros_init(host, 443, user, pass);
@@ -576,8 +583,18 @@ static int command_allowed(const char *command) {
     char command_copy[512];
     char *command_tok;
     char *tok;
+    size_t command_len;
+    int allowed;
 
     if (!command || command[0] == '\0') {
+        return 0;
+    }
+    if (strstr(command, "../") != NULL || strstr(command, "..\\") != NULL) {
+        return 0;
+    }
+    command_len = strnlen(command, sizeof(command_copy));
+    if (command_len >= sizeof(command_copy) ||
+        memchr(command, '\0', command_len + 1) != command + command_len) {
         return 0;
     }
     if (strpbrk(command, danger) != NULL) {
@@ -595,14 +612,23 @@ static int command_allowed(const char *command) {
 
     snprintf(buf, sizeof(buf), "%s", allow);
     tok = strtok(buf, ",");
+    allowed = 0;
     while (tok) {
         while (*tok == ' ' || *tok == '\t') {
             tok++;
         }
         if (tok[0] != '\0' && strcmp(command_tok, tok) == 0) {
-            return 1;
+            allowed = 1;
+            break;
         }
         tok = strtok(NULL, ",");
+    }
+    if (allowed) {
+        return 1;
+    }
+
+    if (command_tok[0] == '/') {
+        return 0;
     }
     return 0;
 }
