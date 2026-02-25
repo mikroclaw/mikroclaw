@@ -82,7 +82,7 @@ SRCS = \
 
 TARGET = mikroclaw
 
-.PHONY: all clean size test install static-mbedtls mbedtls-minimal mikroclaw-minimal static-musl mikroclaw-static-musl mikrotik-docker
+.PHONY: all clean size test install static-mbedtls mbedtls-minimal mikroclaw-minimal static-musl mikroclaw-static-musl mikrotik-docker cppcheck analyze
 
 all: $(TARGET) size
 
@@ -103,6 +103,19 @@ test: $(TARGET)
 	@echo "Running tests..."
 	./test_tls 2>/dev/null && echo "PASS TLS test" || echo "FAIL TLS test"
 	./test_json_escape 2>/dev/null && echo "PASS JSON escape test" || echo "FAIL JSON escape test"
+
+cppcheck:
+	@mkdir -p build
+	@cppcheck --enable=all --inconclusive --suppress=missingInclude \
+		--xml --xml-version=2 $(SRCS) 2> build/cppcheck-report.xml
+	@cppcheck --enable=all --inconclusive --suppress=missingInclude \
+		$(SRCS) 2>&1 | tee build/cppcheck-report.txt
+	@echo "cppcheck complete -- see build/cppcheck-report.txt"
+
+analyze:
+	@mkdir -p build/analyze
+	@scan-build -o build/analyze $(MAKE) clean all CC=clang 2>&1 | tee build/analyze-report.txt
+	@echo "scan-build complete -- see build/analyze/"
 
 install: $(TARGET)
 	@echo "Installing to /usr/local/bin..."

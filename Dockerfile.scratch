@@ -1,4 +1,4 @@
 FROM scratch
-COPY mikroclaw /
+COPY dist/mikroclaw /mikroclaw
 EXPOSE 18789
 ENTRYPOINT ["/mikroclaw"]

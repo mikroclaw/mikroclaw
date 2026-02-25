@@ -20,7 +20,7 @@ mikrotik-docker
 *.dll
 
 # Build directories
-build/
+# dist/  # Commented out - we want to track deployment artifacts
 dist/
 cmake-build-*/
 out/
