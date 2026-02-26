@@ -19,6 +19,8 @@ MikroClaw deploys AI-powered network monitoring and management to MikroTik route
 ./mikroclaw-install.sh --target routeros --ip 192.168.88.1 --user admin --pass secret
 ```
 
+The shell entrypoint is a thin bootstrap that validates Python 3.8+ and delegates all installer logic to `mikroclaw-install.py`.
+
 ## RouterOS Deployment Methods
 
 MikroClaw supports three deployment methods for RouterOS. The installer auto-detects available methods, or you can specify one explicitly.
@@ -35,8 +37,8 @@ MikroClaw supports three deployment methods for RouterOS. The installer auto-det
 
 When `--method` is not specified, the installer tries methods in this order:
 
-1. REST API (port 443, then 80)
-2. SSH (ports 22, 2222, 8022)
+1. SSH (ports 22, 2222, 8022)
+2. REST API (port 443, then 80)
 3. Binary API (port 8729 SSL, then 8728 plain)
 
 The first successful connection is used for deployment.
