@@ -11,15 +11,16 @@ Ultra-lightweight AI agent runtime for MikroTik RouterOS container deployments.
 
 ## Current Release Focus
 
-This repository is currently prepared for release `2026.02.25:BETA` with:
+This repository is currently prepared for release `2025.02.25:BETA2` with:
 
-- Provider registry (13 named providers)
+- Provider registry (17 named providers)
 - LLM streaming parser support
 - Sender allowlists for Telegram/Discord/Slack
 - Async subagent task API (`/tasks`)
 - Gateway pairing + rate limiting + lockout
 - Tool schema registry + security checks
 - Encrypted secret values (`ENCRYPTED:v1:...` format)
+- Installer refresh: full 17-provider selection, CLI provider/options, and runtime-aligned config output
 
 ## Why MikroClaw?
 

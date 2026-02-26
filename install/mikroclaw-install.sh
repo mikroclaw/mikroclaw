@@ -1,10 +1,10 @@
 #!/bin/sh
-# MikroClaw TUI Installer 2026.02.25:BETA
+# MikroClaw TUI Installer 2025.02.25:BETA2
 # Human-friendly installer for MikroClaw AI Agent
 
 set -e
 
-INSTALLER_VERSION="2026.02.25:BETA"
+INSTALLER_VERSION="2025.02.25:BETA2"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -19,15 +19,20 @@ usage() {
   echo "MikroClaw Installer ${INSTALLER_VERSION}"
   echo ""
   echo "Options:"
-  echo "  --target TARGET    Install target: routeros, linux, docker"
+  echo "  --target TARGET    Install target: routeros, linux"
   echo "  --ip IP            Router IP (for routeros target)"
   echo "  --user USER        Router username (default: admin)"
   echo "  --pass PASS        Router password"
+  echo "  --provider NAME    LLM provider (default: openrouter)"
+  echo "  --bot-token TOKEN  Telegram bot token (routeros target)"
+  echo "  --api-key KEY      LLM API key (routeros target)"
+  echo "  --base-url URL     Override LLM base URL"
+  echo "  --model MODEL      Override LLM model"
   echo "  --help             Show this help"
   echo ""
   echo "Examples:"
   echo "  $0                             # Interactive mode"
-  echo "  $0 --target routeros --ip 192.168.88.1 --user admin --pass secret"
+  echo "  $0 --target routeros --ip 192.168.88.1 --user admin --pass secret --provider groq"
   echo ""
 }
 
@@ -76,6 +81,16 @@ is_valid_user() {
     ''|*[!A-Za-z0-9._-]*) return 1 ;;
   esac
   return 0
+}
+
+is_valid_provider() {
+  provider="$1"
+  case "$provider" in
+    openrouter|openai|anthropic|ollama|groq|mistral|xai|deepseek|together|fireworks|perplexity|cohere|bedrock|kimi|minimax|zai|synthetic)
+      return 0
+      ;;
+  esac
+  return 1
 }
 
 # Check SSH connectivity to router
@@ -146,13 +161,18 @@ install_routeros() {
   
   ui_msg "✓ Binary downloaded"
   ui_msg ""
+  local config_file="$tmpdir/mikroclaw.env.json"
+  printf '%s\n' "$config" > "$config_file"
+  ui_msg "✓ Config generated: $config_file"
+  ui_msg ""
   ui_msg "Note: Full deployment requires manual container setup on RouterOS."
   ui_msg "Binary is ready at: $binary"
   ui_msg ""
   ui_msg "Next steps:"
   ui_msg "  1. Copy binary to router: scp $binary $router_user@$router_ip:/disk1/"
-  ui_msg "  2. Configure container on RouterOS"
-  ui_msg "  3. Set environment variables from config"
+  ui_msg "  2. Copy config: scp $config_file $router_user@$router_ip:/disk1/"
+  ui_msg "  3. Configure container on RouterOS"
+  ui_msg "  4. Set environment variables from the JSON config"
 }
 
 # Install to Linux
@@ -224,7 +244,20 @@ install_routeros_interactive() {
     "OpenRouter (recommended)" \
     "OpenAI" \
     "Anthropic" \
-    "Ollama/LocalAI")
+    "Ollama/LocalAI" \
+    "Groq" \
+    "Mistral" \
+    "XAI (Grok)" \
+    "DeepSeek" \
+    "Together" \
+    "Fireworks" \
+    "Perplexity" \
+    "Cohere" \
+    "Bedrock (AWS)" \
+    "Kimi (Moonshot)" \
+    "MiniMax" \
+    "Z.AI" \
+    "Synthetic.New")
   
   local provider="openrouter"
   case "$provider_choice" in
@@ -232,6 +265,19 @@ install_routeros_interactive() {
     2) provider="openai" ;;
     3) provider="anthropic" ;;
     4) provider="ollama" ;;
+    5) provider="groq" ;;
+    6) provider="mistral" ;;
+    7) provider="xai" ;;
+    8) provider="deepseek" ;;
+    9) provider="together" ;;
+    10) provider="fireworks" ;;
+    11) provider="perplexity" ;;
+    12) provider="cohere" ;;
+    13) provider="bedrock" ;;
+    14) provider="kimi" ;;
+    15) provider="minimax" ;;
+    16) provider="zai" ;;
+    17) provider="synthetic" ;;
   esac
   
   local api_key=$(ui_input_secret "LLM API Key")
@@ -282,6 +328,11 @@ TARGET=""
 ROUTER_IP=""
 ROUTER_USER="admin"
 ROUTER_PASS=""
+PROVIDER="openrouter"
+BOT_TOKEN=""
+API_KEY=""
+BASE_URL=""
+MODEL=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -301,6 +352,26 @@ while [ $# -gt 0 ]; do
       ROUTER_PASS="$2"
       shift 2
       ;;
+    --provider)
+      PROVIDER="$2"
+      shift 2
+      ;;
+    --bot-token)
+      BOT_TOKEN="$2"
+      shift 2
+      ;;
+    --api-key)
+      API_KEY="$2"
+      shift 2
+      ;;
+    --base-url)
+      BASE_URL="$2"
+      shift 2
+      ;;
+    --model)
+      MODEL="$2"
+      shift 2
+      ;;
     --help)
       usage
       exit 0
@@ -316,18 +387,28 @@ done
 # Run
 if [ -n "$TARGET" ]; then
   # Command line mode
+  if ! is_valid_provider "$PROVIDER"; then
+    echo "Error: Unsupported provider '$PROVIDER'"
+    echo "Valid providers: openrouter, openai, anthropic, ollama, groq, mistral, xai, deepseek, together, fireworks, perplexity, cohere, bedrock, kimi, minimax, zai, synthetic"
+    exit 1
+  fi
+
   case "$TARGET" in
     routeros)
       if [ -z "$ROUTER_IP" ]; then
         echo "Error: --ip required for routeros target"
         exit 1
       fi
-      # Create minimal config for CLI mode
-      config=$(config_create "" "" "openrouter")
+
+      config=$(config_create "$BOT_TOKEN" "$API_KEY" "$PROVIDER" "$BASE_URL" "$MODEL")
       install_routeros "$ROUTER_IP" "$ROUTER_USER" "$ROUTER_PASS" "$config"
       ;;
     linux)
       install_linux
+      ;;
+    docker)
+      echo "Error: docker target is not yet implemented in CLI mode"
+      exit 1
       ;;
     *)
       echo "Error: Unknown target '$TARGET'"

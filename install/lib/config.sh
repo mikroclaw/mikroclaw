@@ -9,6 +9,7 @@ config_create() {
   local provider="${3:-openrouter}"
   local base_url="${4:-}"
   local model="${5:-}"
+  local auth_type="bearer"
   
   # Set defaults based on provider
   case "$provider" in
@@ -21,12 +22,68 @@ config_create() {
       [ -z "$model" ] && model="gpt-4o"
       ;;
     localai|ollama)
-      [ -z "$base_url" ] && base_url="http://localhost:8080/v1"
+      [ -z "$base_url" ] && base_url="http://127.0.0.1:11434/v1"
       [ -z "$model" ] && model="llama3"
       ;;
     anthropic)
       [ -z "$base_url" ] && base_url="https://api.anthropic.com/v1"
       [ -z "$model" ] && model="claude-3-5-sonnet-latest"
+      auth_type="api_key"
+      ;;
+    groq)
+      [ -z "$base_url" ] && base_url="https://api.groq.com/openai"
+      [ -z "$model" ] && model="llama3-70b-8192"
+      ;;
+    mistral)
+      [ -z "$base_url" ] && base_url="https://api.mistral.ai"
+      [ -z "$model" ] && model="mistral-large-latest"
+      ;;
+    xai)
+      [ -z "$base_url" ] && base_url="https://api.x.ai/v1"
+      [ -z "$model" ] && model="grok-beta"
+      ;;
+    deepseek)
+      [ -z "$base_url" ] && base_url="https://api.deepseek.com"
+      [ -z "$model" ] && model="deepseek-chat"
+      ;;
+    together)
+      [ -z "$base_url" ] && base_url="https://api.together.xyz"
+      [ -z "$model" ] && model="meta-llama/Llama-3-70b"
+      ;;
+    fireworks)
+      [ -z "$base_url" ] && base_url="https://api.fireworks.ai/inference"
+      [ -z "$model" ] && model="accounts/fireworks/models/llama-v3-70b"
+      ;;
+    perplexity)
+      [ -z "$base_url" ] && base_url="https://api.perplexity.ai"
+      [ -z "$model" ] && model="sonar-medium-online"
+      ;;
+    cohere)
+      [ -z "$base_url" ] && base_url="https://api.cohere.com/compatibility"
+      [ -z "$model" ] && model="command-r"
+      auth_type="api_key"
+      ;;
+    bedrock)
+      [ -z "$base_url" ] && base_url="https://bedrock-runtime.us-east-1.amazonaws.com"
+      [ -z "$model" ] && model="anthropic.claude-3-sonnet"
+      auth_type="api_key"
+      ;;
+    kimi)
+      [ -z "$base_url" ] && base_url="https://api.moonshot.cn/v1"
+      [ -z "$model" ] && model="moonshot-v1-8k"
+      ;;
+    minimax)
+      [ -z "$base_url" ] && base_url="https://api.minimax.chat/v1"
+      [ -z "$model" ] && model="abab6.5-chat"
+      auth_type="api_key"
+      ;;
+    zai)
+      [ -z "$base_url" ] && base_url="https://api.z.ai/v1"
+      [ -z "$model" ] && model="zai-latest"
+      ;;
+    synthetic)
+      [ -z "$base_url" ] && base_url="https://api.synthetic.new/v1"
+      [ -z "$model" ] && model="synthetic-large"
       ;;
   esac
   
@@ -38,13 +95,14 @@ config_create() {
       --arg provider "$provider" \
       --arg url "$base_url" \
       --arg model "$model" \
+      --arg auth_type "$auth_type" \
       '{
-        bot_token: $bot,
-        api_key: $key,
-        provider: $provider,
-        base_url: $url,
-        model: $model,
-        auth_type: "bearer",
+        BOT_TOKEN: $bot,
+        LLM_API_KEY: $key,
+        LLM_PROVIDER: $provider,
+        LLM_BASE_URL: $url,
+        MODEL: $model,
+        AUTH_TYPE: $auth_type,
         allowlists: {
           telegram: "",
           discord: "",
@@ -58,12 +116,12 @@ config_create() {
   else
     # Fallback to manual JSON (no jq)
     printf '{\n'
-    printf '  "bot_token": "%s",\n' "$bot_token"
-    printf '  "api_key": "%s",\n' "$api_key"
-    printf '  "provider": "%s",\n' "$provider"
-    printf '  "base_url": "%s",\n' "$base_url"
-    printf '  "model": "%s",\n' "$model"
-    printf '  "auth_type": "bearer",\n'
+    printf '  "BOT_TOKEN": "%s",\n' "$bot_token"
+    printf '  "LLM_API_KEY": "%s",\n' "$api_key"
+    printf '  "LLM_PROVIDER": "%s",\n' "$provider"
+    printf '  "LLM_BASE_URL": "%s",\n' "$base_url"
+    printf '  "MODEL": "%s",\n' "$model"
+    printf '  "AUTH_TYPE": "%s",\n' "$auth_type"
     printf '  "allowlists": {\n'
     printf '    "telegram": "",\n'
     printf '    "discord": "",\n'

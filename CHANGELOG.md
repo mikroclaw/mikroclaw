@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2025.02.25:BETA2] - 2026-02-26
+
+### Changed
+- Installer release version updated to `2025.02.25:BETA2` across installer flow and banner output.
+- RouterOS installer now exposes all 17 provider choices and maps each option to runtime provider keys.
+- CLI installer flow expanded with `--provider`, `--bot-token`, `--api-key`, `--base-url`, and `--model` options.
+- Installer config generation now emits runtime-aligned keys (`BOT_TOKEN`, `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_BASE_URL`, `MODEL`).
+
+### Fixed
+- Provider default coverage completed for all 17 registry providers, including correct default base URLs and model values.
+- Auth style metadata in installer configs now distinguishes `bearer` and `api_key` providers.
+- RouterOS install path now writes generated config to a tangible file for handoff (`mikroclaw.env.json`).
+
+---
+
 ## [2026.02.25:BETA] - 2026-02-25
 
 ### Added

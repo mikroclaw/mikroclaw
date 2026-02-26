@@ -160,7 +160,7 @@ ui_msg() {
 
 ui_banner() {
   echo "╔══════════════════════════════════════════╗"
-  echo "║   MikroClaw Installer 2026.02.25:BETA   ║"
+  echo "║   MikroClaw Installer 2025.02.25:BETA2  ║"
   echo "║     AI Agent for MikroTik RouterOS      ║"
   echo "╚══════════════════════════════════════════╝"
   echo ""
