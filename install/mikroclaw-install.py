@@ -15,6 +15,7 @@ import ssl
 import stat
 import subprocess
 import sys
+import time
 import tempfile
 import urllib.request
 import urllib.error
@@ -26,6 +27,7 @@ INSTALLER_VERSION = "2025.02.25:BETA2"
 BINARY_URL_TEMPLATE = "https://github.com/mikroclaw/mikroclaw/releases/latest/download/mikroclaw-{platform}"
 CONNECT_TIMEOUT = 10
 TRANSFER_TIMEOUT = 120
+_VERBOSE = 0
 
 
 # =============================================================================
@@ -57,12 +59,37 @@ class TimeoutError(InstallerError):
     pass
 
 
+def set_verbose(level: int) -> None:
+    """Set the global verbose level for debug output."""
+    global _VERBOSE
+    _VERBOSE = level
+
+
+def debug(msg: str, level: int = 1) -> None:
+    """Print debug message with timestamp if verbose level is sufficient."""
+    if _VERBOSE >= level:
+        timestamp = time.strftime("%H:%M:%S")
+        print(f"[{timestamp}] DEBUG: {msg}", file=sys.stderr)
+
+
 # =============================================================================
 # Network Helpers (Task 3)
 # =============================================================================
 
 
 def tcp_probe(host: str, port: int, timeout: int = 2) -> bool:
+    """Test TCP connectivity using socket.
+
+    Args:
+        host: Target host IP address
+        port: Target port number
+        timeout: Connection timeout in seconds
+
+    Returns:
+        True if connection succeeds, False otherwise
+    """
+    debug(f"Probing TCP {host}:{port}...")
+    sock = None
     """Test TCP connectivity using socket.
 
     Args:
@@ -111,6 +138,7 @@ def http_request(
         ConnectionError: If connection is refused or fails
         AuthError: If authentication fails (401)
     """
+    debug(f"HTTP {method} {url}", level=2)
     if method not in ("GET", "POST", "PUT"):
         raise ValueError(f"Unsupported HTTP method: {method}")
 
@@ -163,9 +191,11 @@ def _ssh_command_base(ip: str, user: str, port: int) -> list:
 
 
 def _ssh_try_auth(ip: str, user: str, password: str, port: int) -> bool:
+    debug(f"Trying auth for user: {user}", level=2)
     safe_password = shlex.quote(password)
     if safe_password and shutil.which("sshpass"):
         cmd = ["sshpass", "-p", password, *_ssh_command_base(ip, user, port)]
+        debug(f"SSH command: {' '.join(cmd[:3])}...", level=2)
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -196,7 +226,6 @@ def _ssh_try_auth(ip: str, user: str, password: str, port: int) -> bool:
     )
     return key_result.returncode == 0 and "OK" in key_result.stdout
 
-
 def method_ssh_test(ip: str, user: str, password: str, port: int = 22) -> bool:
     if not tcp_probe(ip, port, timeout=2):
         return False
@@ -210,6 +239,13 @@ def method_ssh_test(ip: str, user: str, password: str, port: int = 22) -> bool:
 
 
 def method_ssh_detect(ip: str, user: str, password: str):
+    for port in (22, 2222, 8022):
+        if method_ssh_test(ip, user, password, port):
+            result = ("ssh", port)
+            debug(f"SSH detection: {result}")
+            return result
+    debug("SSH detection: None")
+    return None
     for port in (22, 2222, 8022):
         if method_ssh_test(ip, user, password, port):
             return ("ssh", port)
@@ -246,6 +282,13 @@ def method_rest_test(ip: str, user: str, password: str, port: int = 443) -> bool
 
 
 def method_rest_detect(ip: str, user: str, password: str):
+    for port in (443, 80):
+        if method_rest_test(ip, user, password, port):
+            result = ("rest", port)
+            debug(f"REST API detection: {result}")
+            return result
+    debug("REST API detection: None")
+    return None
     for port in (443, 80):
         if method_rest_test(ip, user, password, port):
             return ("rest", port)
@@ -367,6 +410,7 @@ def _api_encode_length(length: int) -> bytes:
 
 
 def _api_send_sentence(sock_obj, words) -> None:
+    debug(f"API sentence type: {words[0] if words else 'empty'}", level=2)
     payload = bytearray()
     for word in words:
         encoded = word.encode("utf-8")
@@ -381,6 +425,14 @@ def method_api_test(ip: str, port: int = 8728) -> bool:
 
 
 def method_api_detect(ip: str, user: str, password: str):
+    _ = (user, password)
+    for port in (8729, 8728):
+        if method_api_test(ip, port):
+            result = ("api", port)
+            debug(f"Binary API detection: {result}")
+            return result
+    debug("Binary API detection: None")
+    return None
     _ = (user, password)
     for port in (8729, 8728):
         if method_api_test(ip, port):
@@ -621,6 +673,8 @@ def select_method_menu(available_methods: list) -> tuple:
 
         return available_methods[0]
 
+    method, port = available_methods[selection - 1]
+    debug(f"Selected method: {method}:{port}")
     return available_methods[selection - 1]
 
 
@@ -668,6 +722,8 @@ def deploy_with_method(
     """
 
     method_lower = method.lower()
+    method_lower = method.lower()
+    debug(f"Deploying via {method}...")
 
     if method_lower == "ssh":
         return method_ssh_deploy(ip, user, password, port, binary_url, config_json)
@@ -750,6 +806,7 @@ class InstallerConfig:
     model: str
     ssh_port: Optional[int]
     api_port: Optional[int]
+    verbose: int
 
 
 class InstallerArgumentParser(argparse.ArgumentParser):
@@ -787,6 +844,8 @@ def is_valid_provider(value):
 
 
 def config_create(bot_token, api_key, provider="openrouter", base_url="", model=""):
+    debug("Validating configuration...")
+    provider_key = provider
     provider_key = provider
     if provider_key not in PROVIDER_DEFAULTS:
         provider_key = "openrouter"
@@ -813,6 +872,8 @@ def config_create(bot_token, api_key, provider="openrouter", base_url="", model=
 
 
 def download_binary(platform, output_path):
+    debug(f"Downloading binary for {platform}...")
+    url = BINARY_URL_TEMPLATE.format(platform=platform)
     url = BINARY_URL_TEMPLATE.format(platform=platform)
     with urllib.request.urlopen(url, timeout=TRANSFER_TIMEOUT) as response:
         data = response.read()
@@ -854,6 +915,9 @@ def build_parser():
     parser.add_argument(
         "--api-port", type=port_value, help="Explicit Binary API method port override"
     )
+    parser.add_argument(
+        "-v", "--verbose", action="count", default=0, help="Increase verbosity (-v=1, -vv=2)"
+    )
     return parser
 
 
@@ -873,6 +937,7 @@ def parse_args(argv=None):
         model=args.model,
         ssh_port=args.ssh_port,
         api_port=args.api_port,
+        verbose=args.verbose,
     )
 
 
@@ -1175,6 +1240,7 @@ def main_interactive() -> int:
 def main(argv=None):
     try:
         args = parse_args(argv)
+        set_verbose(args.verbose)
         if args.target is None:
             return main_interactive()
 

@@ -43,7 +43,9 @@ def test_checkpoint_8a_main_dispatches_routeros_cli(monkeypatch):
         model="",
         ssh_port=None,
         api_port=None,
+        verbose=0,
     )
+
     monkeypatch.setattr(mod, "parse_args", lambda _argv=None: args)
 
     calls = []
