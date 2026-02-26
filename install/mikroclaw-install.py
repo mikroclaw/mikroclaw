@@ -12,7 +12,69 @@ import urllib.request
 from dataclasses import dataclass
 from typing import NoReturn
 from typing import Optional
+import getpass
 
+
+def ui_menu(title: str, *options: str) -> int:
+    print(file=sys.stderr)
+    print(title, file=sys.stderr)
+    print(file=sys.stderr)
+    for i, opt in enumerate(options, 1):
+        print(f"  {i}) {opt}", file=sys.stderr)
+    print(file=sys.stderr)
+    while True:
+        try:
+            choice = input(f"Choice [1-{len(options)}]: ")
+            idx = int(choice)
+            if 1 <= idx <= len(options):
+                return idx
+        except (ValueError, EOFError):
+            pass
+
+def ui_input(prompt: str, default: Optional[str] = None) -> str:
+    if default is not None:
+        full_prompt = f"{prompt} [{default}]: "
+    else:
+        full_prompt = f"{prompt}: "
+    value = input(full_prompt).strip()
+    if default is not None and not value:
+        return default
+    return value
+
+def ui_input_secret(prompt: str) -> str:
+    return getpass.getpass(f"{prompt}: ")
+
+def ui_progress(msg: str) -> None:
+    print(f"⏳ {msg}...", end="", flush=True, file=sys.stderr)
+
+def ui_done() -> None:
+    print(" ✅", file=sys.stderr)
+
+def ui_error(msg: str) -> None:
+    print(f" ❌ {msg}", file=sys.stderr)
+
+def ui_msg(msg: str) -> None:
+    print(f"  {msg}", file=sys.stderr)
+
+def ui_banner() -> None:
+    banner = f'''
+╔═══════════════════════════════════════════╗
+║                                           ║
+║   ███╗   ███╗██╗██╗  ██╗██████╗  ██████╗  ║
+║   ████╗ ████║██║██║ ██╔╝██╔══██╗██╔════╝  ║
+║   ██╔████╔██║██║█████╔╝ ██████╔╝██║       ║
+║   ██║╚██╔╝██║██║██╔═██╗ ██╔══██╗██║       ║
+║   ██║ ╚═╝ ██║██║██║  ██╗██║  ██║╚██████╗  ║
+║   ╚═╝     ╚═╝╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ║
+║                                           ║
+║        Installer {INSTALLER_VERSION:<18}     ║
+║                                           ║
+╚═══════════════════════════════════════════╝
+'''
+    print(banner, file=sys.stderr)
+
+def ui_clear() -> None:
+    print("\033[2J\033[H", end="", file=sys.stderr)
 
 INSTALLER_VERSION = "2025.02.25:BETA2"
 BINARY_URL_TEMPLATE = "https://github.com/mikroclaw/mikroclaw/releases/latest/download/mikroclaw-{platform}"
