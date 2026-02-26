@@ -888,6 +888,60 @@ def install_routeros_cli(cfg: InstallerConfig) -> int:
     return 0
 
 
+def install_routeros_interactive() -> int:
+    ui_clear()
+    ui_banner()
+    ui_msg("RouterOS Installation")
+
+    ip = ui_input("Router IP")
+    user = ui_input("Router username", "admin")
+    password = ui_input_secret("Router password")
+
+    while True:
+        ui_progress("Detecting available deployment methods")
+        methods = detect_all_methods(ip, user, password)
+        if methods:
+            ui_done()
+            break
+        ui_error("No deployment methods detected")
+        retry = ui_menu("Detection failed. What next?", "Retry detection", "Back")
+        if retry != 1:
+            return 1
+
+    method, port = select_method_menu(methods)
+
+    bot_token = ui_input("Telegram bot token")
+    api_key = ui_input("LLM API key")
+    provider = ui_input("LLM provider", "openrouter")
+    if not is_valid_provider(provider):
+        ui_error(f"Unsupported provider: {provider}")
+        return 1
+    base_url = ui_input("LLM base URL override", "")
+    model = ui_input("LLM model override", "")
+
+    config_json = config_create(bot_token, api_key, provider, base_url, model)
+
+    while True:
+        ui_progress(f"Deploying with {method.upper()} on port {port}")
+        deployed = deploy_with_method(
+            method,
+            ip,
+            user,
+            password,
+            port,
+            "mikrotik-arm64",
+            config_json,
+        )
+        if deployed:
+            ui_done()
+            ui_msg("✅ Installation Complete!")
+            return 0
+        ui_error("Deployment failed")
+        retry = ui_menu("Deployment failed. What next?", "Retry deployment", "Back")
+        if retry != 1:
+            return 1
+
+
 def main_interactive() -> int:
     print("Interactive installer not wired yet.", file=sys.stderr)
     return 1
