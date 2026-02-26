@@ -119,6 +119,8 @@ class TimeoutError(InstallerError):
 
 
 CONNECT_TIMEOUT = 10
+DETECT_RETRIES = 2
+DEPLOY_RETRIES = 2
 
 
 def tcp_probe(host: str, port: int, timeout: int = 2) -> bool:
@@ -870,26 +872,100 @@ def install_routeros_cli(cfg: InstallerConfig) -> int:
         else:
             port = cfg.api_port or 8729
     else:
-        available = detect_all_methods(cfg.ip, cfg.user, cfg.password)
+        available: list[tuple[str, int]] = []
+        for _ in range(DETECT_RETRIES):
+            available = detect_all_methods(cfg.ip, cfg.user, cfg.password)
+            if available:
+                break
         if not available:
-            print("Error: Failed to detect any deployment method", file=sys.stderr)
+            print(
+                "Error [connect]: Failed to detect any deployment method",
+                file=sys.stderr,
+            )
             return 1
         method, port = available[0]
 
-    if not deploy_with_method(
+    ok, category, detail = _check_method_preflight(
         method,
         cfg.ip,
         cfg.user,
         cfg.password,
         port,
-        "mikrotik-arm64",
-        config_json,
-    ):
-        print(f"Error: Deployment failed for method '{method}'", file=sys.stderr)
+    )
+    if not ok:
+        print(f"Error [{category}]: {detail}", file=sys.stderr)
         return 1
 
-    ui_msg("✅ Deployment complete")
-    return 0
+    for _ in range(DEPLOY_RETRIES):
+        if deploy_with_method(
+            method,
+            cfg.ip,
+            cfg.user,
+            cfg.password,
+            port,
+            "mikrotik-arm64",
+            config_json,
+        ):
+            ui_msg("✅ Deployment complete")
+            return 0
+
+    print(
+        f"Error [connect]: Deployment failed for method '{method}' on {cfg.ip}:{port}",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def _check_method_preflight(
+    method: str,
+    ip: str,
+    user: str,
+    password: str,
+    port: int,
+) -> tuple[bool, str, str]:
+    if method == "ssh":
+        if not tcp_probe(ip, port):
+            return (False, "connect", f"Cannot reach SSH service at {ip}:{port}")
+        if not _ssh_try_auth(ip, user, password, port):
+            return (False, "auth", f"SSH authentication failed for {user}@{ip}:{port}")
+        return (True, "", "")
+
+    if method == "rest":
+        url = f"{_rest_base_url(ip, port)}/rest/system/resource"
+        headers = _rest_headers(user, password)
+        try:
+            status, _ = http_request(
+                url, method="GET", headers=headers, timeout=CONNECT_TIMEOUT
+            )
+        except TimeoutError:
+            return (
+                False,
+                "timeout",
+                f"Timed out connecting to REST API at {ip}:{port}",
+            )
+        except ConnectionError:
+            return (False, "connect", f"Cannot reach REST API at {ip}:{port}")
+
+        if status in (401, 403):
+            return (False, "auth", f"REST authentication failed for {user}@{ip}:{port}")
+        if status != 200:
+            return (
+                False,
+                "connect",
+                f"REST endpoint returned HTTP {status} at {ip}:{port}",
+            )
+        return (True, "", "")
+
+    try:
+        with _api_connect(ip, port) as sock:
+            _api_send_sentence(
+                sock, ["/login", f"=name={user}", f"=password={password}"]
+            )
+        return (True, "", "")
+    except socket.timeout:
+        return (False, "timeout", f"Timed out connecting to API service at {ip}:{port}")
+    except OSError:
+        return (False, "connect", f"Cannot reach API service at {ip}:{port}")
 
 
 def install_routeros_interactive() -> int:
@@ -1012,28 +1088,32 @@ def main_interactive() -> int:
 
 def main(argv=None) -> int:
     try:
-        cfg = parse_args(argv)
-    except SystemExit as exc:
-        code = exc.code
-        if isinstance(code, int):
-            return code
-        return 1
+        try:
+            cfg = parse_args(argv)
+        except SystemExit as exc:
+            code = exc.code
+            if isinstance(code, int):
+                return code
+            return 1
 
-    error = _validate_args(cfg)
-    if error:
-        print(f"Error: {error}", file=sys.stderr)
-        if "Unsupported provider" in error:
-            print(f"Valid providers: {', '.join(VALID_PROVIDERS)}", file=sys.stderr)
-        return 1
+        error = _validate_args(cfg)
+        if error:
+            print(f"Error: {error}", file=sys.stderr)
+            if "Unsupported provider" in error:
+                print(f"Valid providers: {', '.join(VALID_PROVIDERS)}", file=sys.stderr)
+            return 1
 
-    if cfg.target is None:
-        return main_interactive()
-    if cfg.target == "routeros":
-        return install_routeros_cli(cfg)
-    if cfg.target == "linux":
-        return install_linux()
-    print("Error: Docker target not yet implemented", file=sys.stderr)
-    return 1
+        if cfg.target is None:
+            return main_interactive()
+        if cfg.target == "routeros":
+            return install_routeros_cli(cfg)
+        if cfg.target == "linux":
+            return install_linux()
+        print("Error: Docker target not yet implemented", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("Interrupted by user", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":
