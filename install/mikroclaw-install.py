@@ -96,6 +96,10 @@ def ui_clear() -> None:
     print("\033[2J\033[H", end="", file=sys.stderr)
 
 
+def ui_init() -> None:
+    return None
+
+
 class InstallerError(Exception):
     def __init__(self, message: str):
         self.message = message
@@ -942,9 +946,68 @@ def install_routeros_interactive() -> int:
             return 1
 
 
-def main_interactive() -> int:
-    print("Interactive installer not wired yet.", file=sys.stderr)
+def install_linux() -> int:
+    temp_dir = tempfile.mkdtemp(prefix="mikroclaw-linux-")
+    try:
+        ui_banner()
+        ui_msg("Installing to Linux host...")
+        binary_path = os.path.join(temp_dir, "mikroclaw")
+        download_binary("linux-x64", binary_path)
+
+        install_dir = "/usr/local/bin"
+        install_path = os.path.join(install_dir, "mikroclaw")
+        if os.access(install_dir, os.W_OK):
+            shutil.copy(binary_path, install_path)
+            ui_msg(f"Installed binary to {install_path}")
+        else:
+            ui_msg(
+                f"Cannot write to {install_dir}. Install manually from {binary_path}"
+            )
+        return 0
+    except Exception as exc:
+        ui_error(f"Failed to install Linux target: {exc}")
+        return 1
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def install_linux_interactive() -> int:
+    ui_clear()
+    ui_banner()
+    ui_msg("Linux Installation")
+    code = install_linux()
+    if code == 0:
+        ui_msg("✅ Installation Complete!")
+        ui_msg("Run: mikroclaw --help")
+    return code
+
+
+def install_docker_interactive() -> int:
+    ui_clear()
+    ui_banner()
+    ui_msg("Docker Installation")
+    ui_msg("Docker support coming soon!")
     return 1
+
+
+def main_interactive() -> int:
+    ui_init()
+    ui_clear()
+    ui_banner()
+    choice = ui_menu(
+        "Choose installation target:",
+        "RouterOS",
+        "Linux",
+        "Docker",
+        "Exit",
+    )
+    if choice == 1:
+        return install_routeros_interactive()
+    if choice == 2:
+        return install_linux_interactive()
+    if choice == 3:
+        return install_docker_interactive()
+    return 0
 
 
 def main(argv=None) -> int:
@@ -968,8 +1031,7 @@ def main(argv=None) -> int:
     if cfg.target == "routeros":
         return install_routeros_cli(cfg)
     if cfg.target == "linux":
-        print("Linux install flow not wired yet.", file=sys.stderr)
-        return 1
+        return install_linux()
     print("Error: Docker target not yet implemented", file=sys.stderr)
     return 1
 
