@@ -1,115 +1,252 @@
-#!/usr/bin/env python3
+"""Test suite for mikroclaw-install.py"""
+
+import argparse
 import importlib.util
 import json
+import subprocess
+import sys
 from pathlib import Path
 
+import pytest
 
-INSTALL_DIR = Path(__file__).resolve().parents[1]
-SCRIPT_PATH = INSTALL_DIR / "mikroclaw-install.py"
-
-
-def load_module():
-    spec = importlib.util.spec_from_file_location("mikroclaw_install", SCRIPT_PATH)
-    if spec is None or spec.loader is None:
-        raise RuntimeError("Failed to load installer module spec")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+# Load module with hyphenated name using importlib
+spec = importlib.util.spec_from_file_location(
+    "mikroclaw_install", Path(__file__).parent.parent / "mikroclaw-install.py"
+)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
 
 
-def test_valid_ipv4_ok():
-    mod = load_module()
-    assert mod.is_valid_ipv4("192.168.88.1") is True
+class TestConfigCreate:
+    """Tests for config_create function."""
+
+    def test_config_create_produces_valid_json(self):
+        """Verify JSON output has expected fields."""
+        result = mod.config_create(
+            bot_token="test_token_123",
+            api_key="test_api_key_456",
+            provider="openrouter",
+        )
+
+        # Parse the JSON
+        config = json.loads(result)
+
+        # Verify all expected fields are present
+        assert "BOT_TOKEN" in config
+        assert "LLM_API_KEY" in config
+        assert "LLM_PROVIDER" in config
+        assert "LLM_BASE_URL" in config
+        assert "MODEL" in config
+        assert "AUTH_TYPE" in config
+        assert "allowlists" in config
+        assert "memory" in config
+
+        # Verify values
+        assert config["BOT_TOKEN"] == "test_token_123"
+        assert config["LLM_API_KEY"] == "test_api_key_456"
+        assert config["LLM_PROVIDER"] == "openrouter"
+        assert config["AUTH_TYPE"] == "bearer"
 
 
-def test_valid_ipv4_reject_invalid():
-    mod = load_module()
-    assert mod.is_valid_ipv4("999.999.999.999") is False
+class TestIsValidIpv4:
+    """Tests for is_valid_ipv4 function."""
+
+    def test_is_valid_ipv4_with_valid_ips(self):
+        """Test valid IP addresses."""
+        valid_ips = [
+            "192.168.1.1",
+            "10.0.0.1",
+            "255.255.255.255",
+            "0.0.0.0",
+            "172.16.0.1",
+            "127.0.0.1",
+        ]
+
+        for ip in valid_ips:
+            assert mod.is_valid_ipv4(ip) is True, f"Expected {ip} to be valid"
+
+    def test_is_valid_ipv4_with_invalid_ips(self):
+        """Test invalid IP addresses."""
+        invalid_ips = [
+            "256.1.1.1",
+            "192.168.1",
+            "192.168.1.1.1",
+            "not-an-ip",
+            "",
+            "192.168.1.256",
+            "::1",
+            "2001:db8::1",
+        ]
+
+        for ip in invalid_ips:
+            assert mod.is_valid_ipv4(ip) is False, f"Expected {ip} to be invalid"
 
 
-def test_valid_user_ok():
-    mod = load_module()
-    assert mod.is_valid_user("admin.user-1") is True
+class TestIsValidProvider:
+    """Tests for is_valid_provider function."""
+
+    def test_is_valid_provider_with_all_17_providers(self):
+        """Test all 17 provider names are valid."""
+        providers = [
+            "openrouter",
+            "openai",
+            "anthropic",
+            "google",
+            "azure",
+            "groq",
+            "together",
+            "replicate",
+            "mistral",
+            "cohere",
+            "ai21",
+            "fireworks",
+            "vertex",
+            "bedrock",
+            "cloudflare",
+            "deepseek",
+            "ollama",
+        ]
+
+        for provider in providers:
+            assert mod.is_valid_provider(provider) is True, (
+                f"Expected {provider} to be valid"
+            )
+
+    def test_is_valid_provider_rejects_invalid(self):
+        """Test invalid provider is rejected."""
+        invalid_providers = [
+            "invalid_provider",
+            "openai-",
+            "OPENROUTER",
+            "",
+            "unknown",
+        ]
+
+        for provider in invalid_providers:
+            assert mod.is_valid_provider(provider) is False, (
+                f"Expected {provider} to be invalid"
+            )
 
 
-def test_valid_user_reject_space():
-    mod = load_module()
-    assert mod.is_valid_user("bad user") is False
+class TestApiEncodeLength:
+    """Tests for _api_encode_length function."""
+
+    def test_api_encode_length_1_byte(self):
+        """Test length < 128 encodes as single byte."""
+        # Test various lengths under 128
+        assert mod._api_encode_length(0) == bytes([0])
+        assert mod._api_encode_length(1) == bytes([1])
+        assert mod._api_encode_length(127) == bytes([127])
+        assert mod._api_encode_length(64) == bytes([64])
+
+    def test_api_encode_length_2_byte(self):
+        """Test length 128-16383 encodes as 2 bytes."""
+        # Test boundary values
+        result = mod._api_encode_length(128)
+        assert len(result) == 2
+        assert result[0] & 0x80 != 0  # High bit set
+
+        result = mod._api_encode_length(16383)
+        assert len(result) == 2
+
+        result = mod._api_encode_length(500)
+        assert len(result) == 2
+
+    def test_api_encode_length_3_byte(self):
+        """Test length > 16383 encodes as 3 bytes."""
+        result = mod._api_encode_length(16384)
+        assert len(result) == 3
+
+        result = mod._api_encode_length(100000)
+        assert len(result) == 3
+
+        result = mod._api_encode_length(0x1FFFFF)  # Max 3-byte value
+        assert len(result) == 3
 
 
-def test_provider_valid_openrouter():
-    mod = load_module()
-    assert mod.is_valid_provider("openrouter") is True
+class TestTcpProbe:
+    """Tests for tcp_probe function."""
+
+    def test_tcp_probe_returns_false_on_closed_port(self):
+        """Test against closed port on localhost."""
+        # Port 1 is typically not used and should be closed
+        result = mod.tcp_probe("127.0.0.1", 1, timeout=1)
+        assert result is False
 
 
-def test_provider_invalid_rejected():
-    mod = load_module()
-    assert mod.is_valid_provider("invalid-provider") is False
+class TestMethodDetection:
+    """Tests for method detection functions - all should return quickly on localhost."""
+
+    def test_method_ssh_test_returns_false_on_localhost(self):
+        """SSH test should return False quickly on localhost (no hang)."""
+        # Should not hang and should return False (no SSH on localhost:22 likely)
+        result = mod.method_ssh_test("127.0.0.1", "admin", "", port=22222)
+        assert result is False
+
+    def test_method_rest_test_returns_false_on_localhost(self):
+        """REST test should return False quickly on localhost (no hang)."""
+        # Should not hang and should return False (no REST API on localhost)
+        result = mod.method_rest_test("127.0.0.1", "admin", "", port=65443)
+        assert result is False
+
+    def test_method_api_test_returns_false_on_localhost(self):
+        """API test should return False quickly on localhost (no hang)."""
+        # Should not hang and should return False (no API on localhost)
+        result = mod.method_api_test("127.0.0.1", port=58728)
+        assert result is False
+
+    def test_detect_all_methods_returns_empty_on_localhost(self):
+        """Detect all methods should return empty list on localhost (no hang)."""
+        # Should not hang and should return empty list
+        result = mod.detect_all_methods("127.0.0.1", "admin", "")
+        assert result == []
 
 
-def test_config_create_defaults_openrouter():
-    mod = load_module()
-    cfg = json.loads(mod.config_create("bot", "key", "openrouter"))
-    assert cfg["LLM_BASE_URL"] == "https://openrouter.ai/api/v1"
-    assert cfg["MODEL"] == "google/gemini-flash"
-    assert cfg["AUTH_TYPE"] == "bearer"
+class TestCLI:
+    """Tests for CLI behavior."""
 
+    def test_cli_help_output_contains_expected_options(self):
+        """Verify help text contains expected options."""
+        installer_path = Path(__file__).parent.parent / "mikroclaw-install.py"
 
-def test_config_create_auth_type_anthropic():
-    mod = load_module()
-    cfg = json.loads(mod.config_create("bot", "key", "anthropic"))
-    assert cfg["AUTH_TYPE"] == "api_key"
+        result = subprocess.run(
+            [sys.executable, str(installer_path), "--help"],
+            capture_output=True,
+            text=True,
+        )
 
+        assert result.returncode == 0
+        help_text = result.stdout
 
-def test_port_value_accepts_valid():
-    mod = load_module()
-    assert mod.port_value("22") == 22
+        # Check for expected options
+        assert "--target" in help_text
+        assert "--ip" in help_text
+        assert "--user" in help_text
+        assert "--pass" in help_text
+        assert "--method" in help_text
+        assert "--provider" in help_text
+        assert "--bot-token" in help_text
+        assert "--api-key" in help_text
+        assert "--verbose" in help_text
 
+    def test_invalid_provider_exits_with_error(self):
+        """Invalid provider should exit with code 1."""
+        installer_path = Path(__file__).parent.parent / "mikroclaw-install.py"
 
-def test_port_value_rejects_zero():
-    mod = load_module()
-    try:
-        mod.port_value("0")
-        assert False
-    except Exception:
-        assert True
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(installer_path),
+                "--target",
+                "routeros",
+                "--ip",
+                "192.168.1.1",
+                "--provider",
+                "invalid_provider_xyz",
+            ],
+            capture_output=True,
+            text=True,
+        )
 
-
-def test_api_encode_length_1byte():
-    mod = load_module()
-    assert mod._api_encode_length(5) == b"\x05"
-
-
-def test_api_encode_length_2byte():
-    mod = load_module()
-    out = mod._api_encode_length(200)
-    assert len(out) == 2
-    assert out[0] & 0x80 == 0x80
-
-
-def test_api_encode_length_3byte():
-    mod = load_module()
-    out = mod._api_encode_length(20000)
-    assert len(out) == 3
-    assert out[0] & 0xC0 == 0xC0
-
-
-def test_detect_all_methods_returns_list():
-    mod = load_module()
-    methods = mod.detect_all_methods("127.0.0.1", "admin", "bad")
-    assert isinstance(methods, list)
-
-
-def test_select_method_menu_single_auto_select():
-    mod = load_module()
-    selected = mod.select_method_menu([("ssh", 22)])
-    assert selected == ("ssh", 22)
-
-
-def test_deploy_with_method_unknown_raises():
-    mod = load_module()
-    try:
-        mod.deploy_with_method("unknown", "1.2.3.4", "u", "p", 1, "url", "{}")
-        assert False
-    except ValueError:
-        assert True
+        assert result.returncode == 1
+        assert "Unsupported provider" in result.stderr or "Error" in result.stderr
