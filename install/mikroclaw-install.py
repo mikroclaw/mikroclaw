@@ -13,6 +13,7 @@ import re
 import stat
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -231,6 +232,22 @@ class InstallerConfig:
     model: str
     ssh_port: Optional[int]
     api_port: Optional[int]
+    verbose: int
+
+
+_VERBOSE = 0
+
+
+def set_verbose(level: int) -> None:
+    global _VERBOSE
+    _VERBOSE = max(0, level)
+
+
+def debug(message: str, level: int = 1) -> None:
+    if _VERBOSE < level:
+        return
+    stamp = time.strftime("%H:%M:%S")
+    print(f"[{stamp}] DEBUG: {message}", file=sys.stderr)
 
 
 class InstallerArgumentParser(argparse.ArgumentParser):
@@ -774,6 +791,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--api-port", type=port_value, help="Explicit Binary API method port override"
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Increase verbosity (repeat for more detail)",
+    )
     return parser
 
 
@@ -792,13 +816,14 @@ def parse_args(argv=None) -> InstallerConfig:
         model=args.model,
         ssh_port=args.ssh_port,
         api_port=args.api_port,
+        verbose=args.verbose,
     )
 
 
 def _validate_args(cfg: InstallerConfig) -> Optional[str]:
     if cfg.target is None:
-        return "--target is required in CLI mode"
-    if cfg.target not in ("routeros", "linux"):
+        return None
+    if cfg.target not in ("routeros", "linux", "docker"):
         return f"Unknown target '{cfg.target}'"
     if not is_valid_provider(cfg.provider):
         return f"Unsupported provider '{cfg.provider}'"
@@ -818,6 +843,56 @@ def _validate_args(cfg: InstallerConfig) -> Optional[str]:
     return None
 
 
+def install_routeros_cli(cfg: InstallerConfig) -> int:
+    set_verbose(cfg.verbose)
+    if not cfg.ip:
+        print("Error: --ip required for routeros target", file=sys.stderr)
+        return 1
+
+    config_json = config_create(
+        cfg.bot_token,
+        cfg.api_key,
+        cfg.provider,
+        cfg.base_url,
+        cfg.model,
+    )
+
+    if cfg.method:
+        method = cfg.method
+        if method == "ssh":
+            port = cfg.ssh_port or 22
+        elif method == "rest":
+            port = 443
+        else:
+            port = cfg.api_port or 8729
+    else:
+        available = detect_all_methods(cfg.ip, cfg.user, cfg.password)
+        if not available:
+            print("Error: Failed to detect any deployment method", file=sys.stderr)
+            return 1
+        method, port = available[0]
+
+    if not deploy_with_method(
+        method,
+        cfg.ip,
+        cfg.user,
+        cfg.password,
+        port,
+        "mikrotik-arm64",
+        config_json,
+    ):
+        print(f"Error: Deployment failed for method '{method}'", file=sys.stderr)
+        return 1
+
+    ui_msg("✅ Deployment complete")
+    return 0
+
+
+def main_interactive() -> int:
+    print("Interactive installer not wired yet.", file=sys.stderr)
+    return 1
+
+
 def main(argv=None) -> int:
     try:
         cfg = parse_args(argv)
@@ -834,13 +909,15 @@ def main(argv=None) -> int:
             print(f"Valid providers: {', '.join(VALID_PROVIDERS)}", file=sys.stderr)
         return 1
 
+    if cfg.target is None:
+        return main_interactive()
+    if cfg.target == "routeros":
+        return install_routeros_cli(cfg)
     if cfg.target == "linux":
-        print("Linux installation skeleton ready.")
-        return 0
-
-    _ = config_create(cfg.bot_token, cfg.api_key, cfg.provider, cfg.base_url, cfg.model)
-    print("RouterOS installation skeleton ready.")
-    return 0
+        print("Linux install flow not wired yet.", file=sys.stderr)
+        return 1
+    print("Error: Docker target not yet implemented", file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":
