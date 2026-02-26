@@ -11,7 +11,24 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Load libraries
 . "$SCRIPT_DIR/lib/ui.sh"
 . "$SCRIPT_DIR/lib/config.sh"
+. "$SCRIPT_DIR/lib/method-ssh.sh"
+. "$SCRIPT_DIR/lib/method-rest.sh"
+. "$SCRIPT_DIR/lib/method-api.sh"
 
+# Global for method errors
+METHOD_LAST_ERROR=""
+
+# Show method error helper
+method_show_error() {
+  if [ -n "$METHOD_LAST_ERROR" ]; then
+    ui_msg "Details: $METHOD_LAST_ERROR"
+  fi
+  if command -v method_ssh_show_error >/dev/null 2>&1; then
+    method_ssh_show_error
+  fi
+}
+
+# Show usage
 # Show usage
 usage() {
   echo "Usage: $0 [OPTIONS]"
@@ -23,6 +40,7 @@ usage() {
   echo "  --ip IP            Router IP (for routeros target)"
   echo "  --user USER        Router username (default: admin)"
   echo "  --pass PASS        Router password"
+  echo "  --method METHOD    Deployment method: ssh, rest, api (auto-detect if not specified)"
   echo "  --provider NAME    LLM provider (default: openrouter)"
   echo "  --bot-token TOKEN  Telegram bot token (routeros target)"
   echo "  --api-key KEY      LLM API key (routeros target)"
@@ -33,6 +51,7 @@ usage() {
   echo "Examples:"
   echo "  $0                             # Interactive mode"
   echo "  $0 --target routeros --ip 192.168.88.1 --user admin --pass secret --provider groq"
+  echo "  $0 --target routeros --ip 192.168.88.1 --user admin --pass secret --method ssh"
   echo ""
 }
 
@@ -93,151 +112,171 @@ is_valid_provider() {
   return 1
 }
 
-ROUTEROS_LAST_ERROR=""
-ROUTEROS_LAST_HINT=""
-
-routeros_set_connection_error() {
-  local raw_error="$1"
-  ROUTEROS_LAST_ERROR="$raw_error"
-  ROUTEROS_LAST_HINT=""
-
-  if printf '%s' "$raw_error" | grep -qi "permission denied"; then
-    ROUTEROS_LAST_HINT="Authentication failed. Verify router username/password."
-  elif printf '%s' "$raw_error" | grep -Eqi "connection timed out|operation timed out|no route to host|network is unreachable"; then
-    ROUTEROS_LAST_HINT="Network timeout. Verify router IP, routing, and firewall access to SSH (tcp/22)."
-  elif printf '%s' "$raw_error" | grep -qi "connection refused"; then
-    ROUTEROS_LAST_HINT="SSH is not accepting connections. Enable SSH service on RouterOS and confirm port 22."
-  elif printf '%s' "$raw_error" | grep -qi "host key verification failed"; then
-    ROUTEROS_LAST_HINT="Host key mismatch. Remove stale known_hosts entry and retry."
-  elif printf '%s' "$raw_error" | grep -qi "could not resolve hostname"; then
-    ROUTEROS_LAST_HINT="Hostname/IP could not be resolved. Check the router address."
-  elif printf '%s' "$raw_error" | grep -qi "connection closed"; then
-    ROUTEROS_LAST_HINT="Connection closed by remote host. Confirm SSH service and account policy on router."
-  else
-    ROUTEROS_LAST_HINT="Connection failed. Verify IP, username, password, and SSH availability."
-  fi
-}
-
-routeros_show_connection_hint() {
-  if [ -n "$ROUTEROS_LAST_HINT" ]; then
-    ui_msg "Hint: $ROUTEROS_LAST_HINT"
-  fi
-  if [ -n "$ROUTEROS_LAST_ERROR" ]; then
-    ui_msg "Details: $ROUTEROS_LAST_ERROR"
-  fi
-}
-
-# Check SSH connectivity to router
-routeros_check_ssh() {
-  local ip="$1"
-  local user="$2"
-
-  if ! is_valid_ipv4 "$ip"; then
-    ui_error "Invalid router IP"
-    return 1
-  fi
-  if ! is_valid_user "$user"; then
-    ui_error "Invalid router username"
-    return 1
-  fi
-  
-  ui_progress "Checking SSH connectivity to $ip"
-  
-  if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes "$user@$ip" ":put \"OK\"" 2>/dev/null | grep -q "OK"; then
-    ui_done
-    return 0
-  else
-    ui_error "Cannot connect to router"
-    return 1
-  fi
-}
-
-routeros_can_connect() {
+# Detect all available connection methods
+# Usage: method_detect_all <ip> <user> <pass>
+# Sets: AVAILABLE_METHODS array with "method:port" entries
+method_detect_all() {
   local ip="$1"
   local user="$2"
   local pass="$3"
-
-  local err_file
-  err_file=$(mktemp)
-  ROUTEROS_LAST_ERROR=""
-  ROUTEROS_LAST_HINT=""
-
-  if command -v sshpass >/dev/null 2>&1; then
-    if sshpass -p "$pass" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$user@$ip" ":put \"OK\"" 2>"$err_file" | grep -q "OK"; then
-      rm -f "$err_file"
-      return 0
-    fi
-    routeros_set_connection_error "$(tr '\n' ' ' <"$err_file")"
-    : >"$err_file"
+  
+  AVAILABLE_METHODS=""
+  
+  ui_progress "Detecting available connection methods"
+  
+  # Try SSH first
+  local ssh_result
+  ssh_result=$(method_ssh_detect "$ip" 2>/dev/null)
+  if [ -n "$ssh_result" ]; then
+    AVAILABLE_METHODS="$AVAILABLE_METHODS $ssh_result"
   fi
-
-  if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes "$user@$ip" ":put \"OK\"" 2>"$err_file" | grep -q "OK"; then
-    rm -f "$err_file"
-    return 0
+  
+  # Try REST API
+  local rest_result
+  rest_result=$(method_rest_detect "$ip" "$user" "$pass" 2>/dev/null)
+  if [ -n "$rest_result" ]; then
+    AVAILABLE_METHODS="$AVAILABLE_METHODS $rest_result"
   fi
-
-  routeros_set_connection_error "$(tr '\n' ' ' <"$err_file")"
-  rm -f "$err_file"
-
-  return 1
+  
+  # Try Binary API
+  local api_result
+  api_result=$(method_api_detect "$ip" "$user" "$pass" 2>/dev/null)
+  if [ -n "$api_result" ]; then
+    AVAILABLE_METHODS="$AVAILABLE_METHODS $api_result"
+  fi
+  
+  ui_done
+  
+  # Trim leading space
+  AVAILABLE_METHODS=$(echo "$AVAILABLE_METHODS" | sed 's/^ *//')
 }
 
-# Install to RouterOS
-install_routeros() {
+# Show method selection menu
+# Usage: method_select_menu
+# Returns: "method:port" selected by user
+method_select_menu() {
+  if [ -z "$AVAILABLE_METHODS" ]; then
+    ui_error "No connection methods detected"
+    return 1
+  fi
+  
+  # Build menu options
+  local menu_options=""
+  local i=1
+  
+  for method in $AVAILABLE_METHODS; do
+    case "$method" in
+      ssh:*) menu_options="$menu_options ${i} 'SSH (port ${method#ssh:})'" ;;
+      https:*) menu_options="$menu_options ${i} 'REST API HTTPS (port ${method#https:})'" ;;
+      http:*) menu_options="$menu_options ${i} 'REST API HTTP (port ${method#http:})'" ;;
+      api-ssl:*) menu_options="$menu_options ${i} 'Binary API SSL (port ${method#api-ssl:})'" ;;
+      api:*) menu_options="$menu_options ${i} 'Binary API (port ${method#api:})'" ;;
+    esac
+    i=$((i + 1))
+  done
+  
+  # Show menu using ui_menu - need to eval the options
+  echo ""
+  ui_msg "Select connection method:"
+  
+  # Build array for menu
+  local opt_array=""
+  for method in $AVAILABLE_METHODS; do
+    case "$method" in
+      ssh:*) opt_array="$opt_array 'SSH (port ${method#ssh:})'" ;;
+      https:*) opt_array="$opt_array 'REST API HTTPS (port ${method#https:})'" ;;
+      http:*) opt_array="$opt_array 'REST API HTTP (port ${method#http:})'" ;;
+      api-ssl:*) opt_array="$opt_array 'Binary API SSL (port ${method#api-ssl:})'" ;;
+      api:*) opt_array="$opt_array 'Binary API (port ${method#api:})'" ;;
+    esac
+  done
+  
+  local selection
+  # Use ASCII menu directly to avoid complexity
+  echo ""
+  echo "═══════════════════════════════════════════" >&2
+  echo "  Select Connection Method" >&2
+  echo "═══════════════════════════════════════════" >&2
+  echo "" >&2
+  
+  i=1
+  for method in $AVAILABLE_METHODS; do
+    case "$method" in
+      ssh:*) echo "   [$i] SSH (port ${method#ssh:})" >&2 ;;
+      https:*) echo "   [$i] REST API HTTPS (port ${method#https:})" >&2 ;;
+      http:*) echo "   [$i] REST API HTTP (port ${method#http:})" >&2 ;;
+      api-ssl:*) echo "   [$i] Binary API SSL (port ${method#api-ssl:})" >&2 ;;
+      api:*) echo "   [$i] Binary API (port ${method#api:})" >&2 ;;
+    esac
+    i=$((i + 1))
+  done
+  
+  echo "" >&2
+  printf "➤ Select option: " >&2
+  if [ -t 0 ] && [ -r /dev/tty ]; then
+    read selection < /dev/tty
+  else
+    read selection
+  fi
+  
+  # Get selected method
+  i=1
+  for method in $AVAILABLE_METHODS; do
+    if [ "$i" = "$selection" ]; then
+      echo "$method"
+      return 0
+    fi
+    i=$((i + 1))
+  done
+  
+  # Invalid selection - return first available
+  echo "$AVAILABLE_METHODS" | cut -d' ' -f1
+}
+
+# Deploy using specified method
+# Usage: routeros_deploy <ip> <user> <pass> <method:port> <config>
+routeros_deploy() {
   local router_ip="$1"
   local router_user="$2"
   local router_pass="$3"
-  local config="$4"
+  local method_spec="$4"
+  local config="$5"
   
-  if ! is_valid_ipv4 "$router_ip"; then
-    ui_error "Invalid router IP"
-    return 1
-  fi
-  if ! is_valid_user "$router_user"; then
-    ui_error "Invalid router username"
-    return 1
-  fi
-
-  ui_banner
-  ui_msg "Installing MikroClaw to RouterOS"
-  ui_msg "Router: $router_user@$router_ip"
-  ui_msg ""
+  local method="${method_spec%%:*}"
+  local port="${method_spec##*:}"
   
-  # Check connectivity
-  if ! routeros_can_connect "$router_ip" "$router_user" "$router_pass"; then
-    ui_error "Failed to connect to router. Check IP, user, and password."
-    routeros_show_connection_hint
-    return 1
-  fi
-  ui_msg "✓ Connected to router"
+  # Get binary URL
+  local binary_url="https://github.com/mikroclaw/mikroclaw/releases/latest/download/mikroclaw-linux-x64"
   
-  # Create temp directory
-  local tmpdir=$(mktemp -d)
-  trap "rm -rf $tmpdir" EXIT
-  
-  # Download binary
-  local binary="$tmpdir/mikroclaw"
-  if ! download_binary "linux-x64" "$binary"; then
-    ui_error "Failed to download binary"
-    return 1
-  fi
-  
-  ui_msg "✓ Binary downloaded"
-  ui_msg ""
-  local config_file="$tmpdir/mikroclaw.env.json"
-  printf '%s\n' "$config" > "$config_file"
-  ui_msg "✓ Config generated: $config_file"
-  ui_msg ""
-  ui_msg "Note: Full deployment requires manual container setup on RouterOS."
-  ui_msg "Binary is ready at: $binary"
-  ui_msg ""
-  ui_msg "Next steps:"
-  ui_msg "  1. Copy binary to router: scp $binary $router_user@$router_ip:/disk1/"
-  ui_msg "  2. Copy config: scp $config_file $router_user@$router_ip:/disk1/"
-  ui_msg "  3. Configure container on RouterOS"
-  ui_msg "  4. Set environment variables from the JSON config"
-
-  return 0
+  case "$method" in
+    ssh)
+      method_ssh_deploy "$router_ip" "$port" "$router_user" "$router_pass" "$config"
+      ;;
+    https|http)
+      # For REST API, we need to download binary locally then deploy
+      local tmpdir
+      tmpdir=$(mktemp -d)
+      trap "rm -rf $tmpdir" EXIT
+      
+      local binary="$tmpdir/mikroclaw"
+      if ! download_binary "linux-x64" "$binary"; then
+        ui_error "Failed to download binary"
+        return 1
+      fi
+      
+      local config_file="$tmpdir/mikroclaw.env.json"
+      printf '%s\n' "$config" > "$config_file"
+      
+      method_rest_deploy "$router_ip" "$port" "$router_user" "$router_pass" "$binary" "$config_file"
+      ;;
+    api|api-ssl)
+      method_api_deploy "$router_ip" "$router_user" "$router_pass" "$port" "$binary_url" "$config"
+      ;;
+    *)
+      ui_error "Unknown deployment method: $method"
+      return 1
+      ;;
+  esac
 }
 
 # Install to Linux
@@ -298,37 +337,41 @@ install_routeros_interactive() {
   local router_ip=$(ui_input "Router IP address")
   local router_user=$(ui_input "Router username" "admin")
   local router_pass=$(ui_input_secret "Router password")
-
-  while true; do
-    if routeros_can_connect "$router_ip" "$router_user" "$router_pass"; then
-      break
-    fi
-
-    ui_error "Unable to connect to $router_user@$router_ip"
-    routeros_show_connection_hint
-
-    local preflight_choice=$(ui_menu "Router Connection Failed" \
-      "Retry with same credentials" \
-      "Re-enter router credentials" \
-      "Cancel installation")
-
-    case "$preflight_choice" in
-      1)
-        ;;
-      2)
-        router_ip=$(ui_input "Router IP address" "$router_ip")
-        router_user=$(ui_input "Router username" "$router_user")
-        router_pass=$(ui_input_secret "Router password")
-        ;;
-      3|4)
-        ui_msg "Installation cancelled"
-        return 1
-        ;;
-      *)
-        ui_error "Invalid selection"
-        ;;
+  
+  # Detect available methods
+  method_detect_all "$router_ip" "$router_user" "$router_pass"
+  
+  if [ -z "$AVAILABLE_METHODS" ]; then
+    ui_error "No connection methods detected on $router_ip"
+    ui_msg "Please ensure at least one of these is enabled:"
+    ui_msg "  - SSH (port 22, 2222, or 8022)"
+    ui_msg "  - REST API (port 80 or 443)"
+    ui_msg "  - Binary API (port 8728 or 8729)"
+    return 1
+  fi
+  
+  # Show available methods
+  ui_msg ""
+  ui_msg "Detected connection methods:"
+  for method in $AVAILABLE_METHODS; do
+    case "$method" in
+      ssh:*) ui_msg "  - SSH on port ${method#ssh:}" ;;
+      https:*) ui_msg "  - REST API (HTTPS) on port ${method#https:}" ;;
+      http:*) ui_msg "  - REST API (HTTP) on port ${method#http:}" ;;
+      api-ssl:*) ui_msg "  - Binary API (SSL) on port ${method#api-ssl:}" ;;
+      api:*) ui_msg "  - Binary API on port ${method#api:}" ;;
     esac
   done
+  
+  # Let user select method
+  local selected_method=$(method_select_menu)
+  if [ $? -ne 0 ]; then
+    ui_error "No method selected"
+    return 1
+  fi
+  
+  ui_msg ""
+  ui_msg "Selected: $selected_method"
   
   # Get bot token
   ui_msg ""
@@ -390,16 +433,22 @@ install_routeros_interactive() {
   
   ui_msg ""
   ui_msg "Configuration complete"
-  ui_msg "Installing to $router_ip..."
+  ui_msg "Installing to $router_ip via $selected_method..."
 
   while true; do
-    if install_routeros "$router_ip" "$router_user" "$router_pass" "$config"; then
+    if routeros_deploy "$router_ip" "$router_user" "$router_pass" "$selected_method" "$config"; then
+      ui_msg ""
+      ui_msg "✅ Installation Complete!"
       break
     fi
+
+    ui_error "Installation failed"
+    method_show_error
 
     local install_choice=$(ui_menu "Installation Failed" \
       "Retry install" \
       "Re-enter router credentials" \
+      "Select different method" \
       "Cancel installation")
 
     case "$install_choice" in
@@ -409,8 +458,16 @@ install_routeros_interactive() {
         router_ip=$(ui_input "Router IP address" "$router_ip")
         router_user=$(ui_input "Router username" "$router_user")
         router_pass=$(ui_input_secret "Router password")
+        # Re-detect with new credentials
+        method_detect_all "$router_ip" "$router_user" "$router_pass"
+        if [ -n "$AVAILABLE_METHODS" ]; then
+          selected_method=$(method_select_menu)
+        fi
         ;;
-      3|4)
+      3)
+        selected_method=$(method_select_menu)
+        ;;
+      4|5)
         ui_msg "Installation cancelled"
         return 1
         ;;
@@ -449,12 +506,12 @@ TARGET=""
 ROUTER_IP=""
 ROUTER_USER="admin"
 ROUTER_PASS=""
+METHOD=""  # Auto-detect if empty
 PROVIDER="openrouter"
 BOT_TOKEN=""
 API_KEY=""
 BASE_URL=""
 MODEL=""
-
 while [ $# -gt 0 ]; do
   case "$1" in
     --target)
@@ -471,6 +528,10 @@ while [ $# -gt 0 ]; do
       ;;
     --pass)
       ROUTER_PASS="$2"
+      shift 2
+      ;;
+    --method)
+      METHOD="$2"
       shift 2
       ;;
     --provider)
@@ -522,7 +583,58 @@ if [ -n "$TARGET" ]; then
       fi
 
       config=$(config_create "$BOT_TOKEN" "$API_KEY" "$PROVIDER" "$BASE_URL" "$MODEL")
-      install_routeros "$ROUTER_IP" "$ROUTER_USER" "$ROUTER_PASS" "$config"
+      
+      # Determine method to use
+      if [ -n "$METHOD" ]; then
+        # Use specified method
+        case "$METHOD" in
+          ssh)
+            method_spec="ssh:22"
+            ;;
+          rest)
+            # Auto-detect REST port
+            method_spec=$(method_rest_detect "$ROUTER_IP" "$ROUTER_USER" "$ROUTER_PASS")
+            if [ -z "$method_spec" ]; then
+              echo "Error: REST API not available on $ROUTER_IP" >&2
+              exit 1
+            fi
+            ;;
+          api)
+            # Auto-detect API port
+            method_spec=$(method_api_detect "$ROUTER_IP" "$ROUTER_USER" "$ROUTER_PASS")
+            if [ -z "$method_spec" ]; then
+              echo "Error: Binary API not available on $ROUTER_IP" >&2
+              exit 1
+            fi
+            ;;
+          *)
+            echo "Error: Unknown method '$METHOD'. Use: ssh, rest, or api" >&2
+            exit 1
+            ;;
+        esac
+      else
+        # Auto-detect
+        method_detect_all "$ROUTER_IP" "$ROUTER_USER" "$ROUTER_PASS"
+        if [ -z "$AVAILABLE_METHODS" ]; then
+          echo "Error: No connection methods detected on $ROUTER_IP" >&2
+          echo "Ensure SSH, REST API, or Binary API is enabled" >&2
+          exit 1
+        fi
+        # Use first available method
+        method_spec=$(echo "$AVAILABLE_METHODS" | cut -d' ' -f1)
+      fi
+      
+      ui_progress "Deploying via $method_spec"
+      if routeros_deploy "$ROUTER_IP" "$ROUTER_USER" "$ROUTER_PASS" "$method_spec" "$config"; then
+        ui_done
+        echo ""
+        echo "✅ Installation Complete!"
+      else
+        ui_done
+        echo ""
+        echo "❌ Installation failed"
+        exit 1
+      fi
       ;;
     linux)
       install_linux
@@ -540,3 +652,4 @@ else
   # Interactive mode
   main_interactive
 fi
+
