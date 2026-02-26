@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from typing import NoReturn
 from typing import Optional
 import getpass
+import socket
+import ssl
 
 
 def ui_menu(title: str, *options: str) -> int:
@@ -75,6 +77,66 @@ def ui_banner() -> None:
 
 def ui_clear() -> None:
     print("\033[2J\033[H", end="", file=sys.stderr)
+
+
+class InstallerError(Exception):
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(message)
+
+
+class ConnectionError(InstallerError):
+    pass
+
+
+class AuthError(InstallerError):
+    pass
+
+
+class TimeoutError(InstallerError):
+    pass
+
+
+CONNECT_TIMEOUT = 10
+
+
+def tcp_probe(host: str, port: int, timeout: int = 2) -> bool:
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+
+def http_request(
+    url: str,
+    method: str = "GET",
+    headers: Optional[dict] = None,
+    data: Optional[bytes] = None,
+    timeout: int = CONNECT_TIMEOUT,
+) -> tuple:
+    req = urllib.request.Request(url, method=method)
+    if headers:
+        for key, value in headers.items():
+            req.add_header(key, value)
+    if data:
+        req.data = data
+    try:
+        ctx = ssl._create_unverified_context()
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as response:
+            return (response.status, response.read())
+    except urllib.error.HTTPError as exc:
+        return (exc.code, exc.read())
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, socket.timeout):
+            raise TimeoutError(f"Request to {url} timed out") from exc
+        raise ConnectionError(f"Failed to connect to {url}: {exc.reason}") from exc
+    except socket.timeout:
+        raise TimeoutError(f"Request to {url} timed out")
+
 
 INSTALLER_VERSION = "2025.02.25:BETA2"
 BINARY_URL_TEMPLATE = "https://github.com/mikroclaw/mikroclaw/releases/latest/download/mikroclaw-{platform}"
