@@ -93,6 +93,40 @@ is_valid_provider() {
   return 1
 }
 
+ROUTEROS_LAST_ERROR=""
+ROUTEROS_LAST_HINT=""
+
+routeros_set_connection_error() {
+  local raw_error="$1"
+  ROUTEROS_LAST_ERROR="$raw_error"
+  ROUTEROS_LAST_HINT=""
+
+  if printf '%s' "$raw_error" | grep -qi "permission denied"; then
+    ROUTEROS_LAST_HINT="Authentication failed. Verify router username/password."
+  elif printf '%s' "$raw_error" | grep -Eqi "connection timed out|operation timed out|no route to host|network is unreachable"; then
+    ROUTEROS_LAST_HINT="Network timeout. Verify router IP, routing, and firewall access to SSH (tcp/22)."
+  elif printf '%s' "$raw_error" | grep -qi "connection refused"; then
+    ROUTEROS_LAST_HINT="SSH is not accepting connections. Enable SSH service on RouterOS and confirm port 22."
+  elif printf '%s' "$raw_error" | grep -qi "host key verification failed"; then
+    ROUTEROS_LAST_HINT="Host key mismatch. Remove stale known_hosts entry and retry."
+  elif printf '%s' "$raw_error" | grep -qi "could not resolve hostname"; then
+    ROUTEROS_LAST_HINT="Hostname/IP could not be resolved. Check the router address."
+  elif printf '%s' "$raw_error" | grep -qi "connection closed"; then
+    ROUTEROS_LAST_HINT="Connection closed by remote host. Confirm SSH service and account policy on router."
+  else
+    ROUTEROS_LAST_HINT="Connection failed. Verify IP, username, password, and SSH availability."
+  fi
+}
+
+routeros_show_connection_hint() {
+  if [ -n "$ROUTEROS_LAST_HINT" ]; then
+    ui_msg "Hint: $ROUTEROS_LAST_HINT"
+  fi
+  if [ -n "$ROUTEROS_LAST_ERROR" ]; then
+    ui_msg "Details: $ROUTEROS_LAST_ERROR"
+  fi
+}
+
 # Check SSH connectivity to router
 routeros_check_ssh() {
   local ip="$1"
@@ -118,6 +152,36 @@ routeros_check_ssh() {
   fi
 }
 
+routeros_can_connect() {
+  local ip="$1"
+  local user="$2"
+  local pass="$3"
+
+  local err_file
+  err_file=$(mktemp)
+  ROUTEROS_LAST_ERROR=""
+  ROUTEROS_LAST_HINT=""
+
+  if command -v sshpass >/dev/null 2>&1; then
+    if sshpass -p "$pass" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$user@$ip" ":put \"OK\"" 2>"$err_file" | grep -q "OK"; then
+      rm -f "$err_file"
+      return 0
+    fi
+    routeros_set_connection_error "$(tr '\n' ' ' <"$err_file")"
+    : >"$err_file"
+  fi
+
+  if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes "$user@$ip" ":put \"OK\"" 2>"$err_file" | grep -q "OK"; then
+    rm -f "$err_file"
+    return 0
+  fi
+
+  routeros_set_connection_error "$(tr '\n' ' ' <"$err_file")"
+  rm -f "$err_file"
+
+  return 1
+}
+
 # Install to RouterOS
 install_routeros() {
   local router_ip="$1"
@@ -127,11 +191,11 @@ install_routeros() {
   
   if ! is_valid_ipv4 "$router_ip"; then
     ui_error "Invalid router IP"
-    exit 1
+    return 1
   fi
   if ! is_valid_user "$router_user"; then
     ui_error "Invalid router username"
-    exit 1
+    return 1
   fi
 
   ui_banner
@@ -140,11 +204,10 @@ install_routeros() {
   ui_msg ""
   
   # Check connectivity
-  if ! sshpass -p "$router_pass" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$router_user@$router_ip" ":put \"OK\"" 2>/dev/null | grep -q "OK"; then
-    if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes "$router_user@$router_ip" ":put \"OK\"" 2>/dev/null | grep -q "OK"; then
-      ui_error "Failed to connect to router. Check IP, user, and password."
-      exit 1
-    fi
+  if ! routeros_can_connect "$router_ip" "$router_user" "$router_pass"; then
+    ui_error "Failed to connect to router. Check IP, user, and password."
+    routeros_show_connection_hint
+    return 1
   fi
   ui_msg "✓ Connected to router"
   
@@ -156,7 +219,7 @@ install_routeros() {
   local binary="$tmpdir/mikroclaw"
   if ! download_binary "linux-x64" "$binary"; then
     ui_error "Failed to download binary"
-    exit 1
+    return 1
   fi
   
   ui_msg "✓ Binary downloaded"
@@ -173,6 +236,8 @@ install_routeros() {
   ui_msg "  2. Copy config: scp $config_file $router_user@$router_ip:/disk1/"
   ui_msg "  3. Configure container on RouterOS"
   ui_msg "  4. Set environment variables from the JSON config"
+
+  return 0
 }
 
 # Install to Linux
@@ -233,6 +298,37 @@ install_routeros_interactive() {
   local router_ip=$(ui_input "Router IP address")
   local router_user=$(ui_input "Router username" "admin")
   local router_pass=$(ui_input_secret "Router password")
+
+  while true; do
+    if routeros_can_connect "$router_ip" "$router_user" "$router_pass"; then
+      break
+    fi
+
+    ui_error "Unable to connect to $router_user@$router_ip"
+    routeros_show_connection_hint
+
+    local preflight_choice=$(ui_menu "Router Connection Failed" \
+      "Retry with same credentials" \
+      "Re-enter router credentials" \
+      "Cancel installation")
+
+    case "$preflight_choice" in
+      1)
+        ;;
+      2)
+        router_ip=$(ui_input "Router IP address" "$router_ip")
+        router_user=$(ui_input "Router username" "$router_user")
+        router_pass=$(ui_input_secret "Router password")
+        ;;
+      3|4)
+        ui_msg "Installation cancelled"
+        return 1
+        ;;
+      *)
+        ui_error "Invalid selection"
+        ;;
+    esac
+  done
   
   # Get bot token
   ui_msg ""
@@ -293,11 +389,36 @@ install_routeros_interactive() {
     sed "s/\"slack\": \"\"/\"slack\": \"$sk_allowlist\"/")
   
   ui_msg ""
-  ui_msg "Configuration complete (not saved to disk)"
+  ui_msg "Configuration complete"
   ui_msg "Installing to $router_ip..."
-  
-  # Install
-  install_routeros "$router_ip" "$router_user" "$router_pass" "$config"
+
+  while true; do
+    if install_routeros "$router_ip" "$router_user" "$router_pass" "$config"; then
+      break
+    fi
+
+    local install_choice=$(ui_menu "Installation Failed" \
+      "Retry install" \
+      "Re-enter router credentials" \
+      "Cancel installation")
+
+    case "$install_choice" in
+      1)
+        ;;
+      2)
+        router_ip=$(ui_input "Router IP address" "$router_ip")
+        router_user=$(ui_input "Router username" "$router_user")
+        router_pass=$(ui_input_secret "Router password")
+        ;;
+      3|4)
+        ui_msg "Installation cancelled"
+        return 1
+        ;;
+      *)
+        ui_error "Invalid selection"
+        ;;
+    esac
+  done
 }
 
 # Linux interactive install

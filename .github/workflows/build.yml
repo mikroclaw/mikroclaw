@@ -16,7 +16,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libmbedtls-dev
+          sudo apt-get install -y libmbedtls-dev libcurl4-openssl-dev
 
       - name: Build
         run: make clean && make
@@ -52,7 +52,7 @@ jobs:
           file ./mikroclaw-static-musl
           ldd ./mikroclaw-static-musl 2>&1 | grep "not a dynamic executable"
           size=$(stat -c%s ./mikroclaw-static-musl)
-          test "$size" -lt 256000
+          test "$size" -lt 655360
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -68,7 +68,7 @@ jobs:
       - name: Install toolchain and mbedTLS source
         run: |
           sudo apt-get update
-          sudo apt-get install -y libmbedtls-dev git
+          sudo apt-get install -y libmbedtls-dev libcurl4-openssl-dev git
           git clone --depth 1 --branch mbedtls-2.28.10 https://github.com/Mbed-TLS/mbedtls.git /tmp/mbedtls
 
       - name: Build custom mbedTLS

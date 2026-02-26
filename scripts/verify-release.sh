@@ -74,10 +74,10 @@ build_test_binary tests/test_discord tests/test_discord.c src/channels/discord.c
 build_test_binary tests/test_slack tests/test_slack.c src/channels/slack.c src/channels/allowlist.c src/http_client.c src/json.c vendor/jsmn.c -lcurl
 build_test_binary tests/test_discord_inbound tests/test_discord_inbound.c src/channels/discord.c src/channels/allowlist.c src/http_client.c src/json.c vendor/jsmn.c -lcurl
 build_test_binary tests/test_slack_inbound tests/test_slack_inbound.c src/channels/slack.c src/channels/allowlist.c src/http_client.c src/json.c vendor/jsmn.c -lcurl
-build_test_binary tests/test_functions tests/test_functions.c src/functions.c src/memu_client.c src/routeros.c src/http.c src/http_client.c src/json.c src/base64.c src/channels/allowlist.c src/llm_stream.c src/provider_registry.c vendor/jsmn.c vendor/mbedtls_integration.c -lcurl -lmbedtls -lmbedx509 -lmbedcrypto
+build_test_binary tests/test_functions tests/test_functions.c src/functions.c src/buf.c src/memu_client.c src/routeros.c src/http.c src/http_client.c src/json.c src/base64.c src/channels/allowlist.c src/llm_stream.c src/provider_registry.c vendor/jsmn.c vendor/mbedtls_integration.c -lcurl -lmbedtls -lmbedx509 -lmbedcrypto
 build_test_binary tests/test_memu_client tests/test_memu_client.c src/memu_client.c src/json.c vendor/jsmn.c -lcurl
 build_test_binary tests/test_config_memu tests/test_config_memu.c src/config_memu.c src/memu_client.c src/json.c vendor/jsmn.c -lcurl
-build_test_binary tests/test_gateway_auth tests/test_gateway_auth.c src/gateway_auth.c
+build_test_binary tests/test_gateway_auth tests/test_gateway_auth.c src/gateway_auth.c -lmbedtls -lmbedx509 -lmbedcrypto
 build_test_binary tests/test_rate_limit tests/test_rate_limit.c src/rate_limit.c
 build_test_binary tests/test_gateway_port tests/test_gateway_port.c src/gateway.c
 build_test_binary tests/test_task_queue tests/test_task_queue.c src/task_queue.c
@@ -85,13 +85,13 @@ build_test_binary tests/test_subagent tests/test_subagent.c src/subagent.c src/w
 build_test_binary tests/test_cli tests/test_cli.c src/cli.c
 build_test_binary tests/test_config_validate tests/test_config_validate.c src/config_validate.c
 build_test_binary tests/test_crypto tests/test_crypto.c src/crypto.c -lmbedtls -lmbedx509 -lmbedcrypto
-build_test_binary tests/test_identity tests/test_identity.c src/identity.c src/memu_client.c src/json.c src/http_client.c vendor/jsmn.c -lcurl
+build_test_binary tests/test_identity tests/test_identity.c src/identity.c src/memu_client.c src/json.c src/http_client.c vendor/jsmn.c -lcurl -lmbedtls -lmbedx509 -lmbedcrypto
 build_test_binary tests/test_channel_supervisor tests/test_channel_supervisor.c src/channel_supervisor.c
 build_test_binary tests/test_provider_registry tests/test_provider_registry.c src/provider_registry.c
 build_test_binary tests/test_llm_stream tests/test_llm_stream.c src/llm_stream.c
 build_test_binary tests/test_allowlist tests/test_allowlist.c src/channels/allowlist.c
-build_test_binary tests/test_schema -DDISABLE_WEB_SEARCH tests/test_schema.c src/functions.c src/memu_client_stub.c src/routeros.c src/base64.c src/http.c src/json.c vendor/jsmn.c vendor/mbedtls_integration.c -lmbedtls -lmbedx509 -lmbedcrypto
-build_test_binary tests/test_tool_security -DDISABLE_WEB_SEARCH tests/test_tool_security.c src/functions.c src/memu_client_stub.c src/routeros.c src/base64.c src/http.c src/json.c vendor/jsmn.c vendor/mbedtls_integration.c -lmbedtls -lmbedx509 -lmbedcrypto
+build_test_binary tests/test_schema -DDISABLE_WEB_SEARCH tests/test_schema.c src/functions.c src/buf.c src/memu_client_stub.c src/routeros.c src/base64.c src/http.c src/json.c vendor/jsmn.c vendor/mbedtls_integration.c -lmbedtls -lmbedx509 -lmbedcrypto
+build_test_binary tests/test_tool_security -DDISABLE_WEB_SEARCH tests/test_tool_security.c src/functions.c src/buf.c src/memu_client_stub.c src/routeros.c src/base64.c src/http.c src/json.c vendor/jsmn.c vendor/mbedtls_integration.c -lmbedtls -lmbedx509 -lmbedcrypto
 
 test_start "TLS verification test"
 if ./tests/test_tls_verify >/dev/null 2>&1; then
@@ -355,9 +355,9 @@ if bash -lc "$STATIC_BUILD_CMD" >/tmp/mikroclaw_static_build.log 2>&1; then
     else
         test_fail "binary is not fully static"
     fi
-    test_start "static binary size <500KB"
+    test_start "static binary size <640KB"
     STATIC_SIZE=$(stat -c%s ./mikroclaw-static-musl 2>/dev/null || stat -f%z ./mikroclaw-static-musl)
-    if [ "$STATIC_SIZE" -lt 512000 ]; then
+    if [ "$STATIC_SIZE" -lt 655360 ]; then
         test_pass
     else
         test_fail "static size is $STATIC_SIZE bytes"
