@@ -20,7 +20,7 @@ type CheckResult struct {
 
 // Checker performs pre-flight checks before deployment
 type Checker struct {
-	client RouterOSClient
+	client  RouterOSClient
 	results []CheckResult
 }
 
@@ -69,9 +69,9 @@ func (c *Checker) checkRouterOSVersion(ctx context.Context) CheckResult {
 	version, err := c.client.GetVersion(ctx)
 	if err != nil {
 		return CheckResult{
-			Name:    "RouterOS Version",
-			Passed:  false,
-			Message: fmt.Sprintf("Failed to get RouterOS version: %v", err),
+			Name:      "RouterOS Version",
+			Passed:    false,
+			Message:   fmt.Sprintf("Failed to get RouterOS version: %v", err),
 			Timestamp: time.Now(),
 		}
 	}

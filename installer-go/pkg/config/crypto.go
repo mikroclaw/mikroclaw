@@ -12,9 +12,9 @@ import (
 
 // EncryptedConfig wraps an encrypted config with metadata
 type EncryptedConfig struct {
-	Version   int    `json:"version"`
-	Salt      string `json:"salt"`
-	Nonce     string `json:"nonce"`
+	Version    int    `json:"version"`
+	Salt       string `json:"salt"`
+	Nonce      string `json:"nonce"`
 	Ciphertext string `json:"ciphertext"`
 }
 

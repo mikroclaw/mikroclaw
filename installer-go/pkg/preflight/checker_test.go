@@ -36,11 +36,11 @@ func (m *MockRouterOSClient) TestRegistryConnectivity(ctx context.Context, regis
 
 func TestCheckRouterOSVersion(t *testing.T) {
 	tests := []struct {
-		name           string
-		version        string
-		expectPassed   bool
-		expectWarning  bool
-		expectMessage  string
+		name          string
+		version       string
+		expectPassed  bool
+		expectWarning bool
+		expectMessage string
 	}{
 		{
 			name:          "stable version 7.16",

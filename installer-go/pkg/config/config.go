@@ -59,13 +59,13 @@ type RouterOSConfig struct {
 
 // ContainerConfig contains container-specific settings
 type ContainerConfig struct {
-	Name        string            `json:"name"`
-	Image       string            `json:"image"`
-	File        string            `json:"file,omitempty"`
-	EnvVars     map[string]string `json:"env_vars,omitempty"`
-	Mounts      map[string]string `json:"mounts,omitempty"`
-	Interface   string            `json:"interface,omitempty"`
-	AutoStart   bool              `json:"auto_start"`
+	Name      string            `json:"name"`
+	Image     string            `json:"image"`
+	File      string            `json:"file,omitempty"`
+	EnvVars   map[string]string `json:"env_vars,omitempty"`
+	Mounts    map[string]string `json:"mounts,omitempty"`
+	Interface string            `json:"interface,omitempty"`
+	AutoStart bool              `json:"auto_start"`
 }
 
 // RegistryConfig contains registry authentication settings
