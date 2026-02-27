@@ -28,6 +28,7 @@ func main() {
 	var (
 		interactive = flag.Bool("i", false, "Interactive mode (prompts for all settings)")
 		configFile  = flag.String("config", "", "Configuration file path")
+		editFile    = flag.String("edit", "", "Edit existing config file")
 		checkOnly   = flag.Bool("check", false, "Run pre-flight checks only")
 		dryRun      = flag.Bool("dry-run", false, "Show what would be done without executing")
 		version     = flag.Bool("version", false, "Show version")
@@ -46,6 +47,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  %s\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  # Create new configuration interactively\n")
 		fmt.Fprintf(os.Stderr, "  %s -i\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  # Edit existing config file\n")
+		fmt.Fprintf(os.Stderr, "  %s -edit mikroclaw.json\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  # Run pre-flight checks only\n")
 		fmt.Fprintf(os.Stderr, "  %s -check\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  # Load specific config file\n")
@@ -65,7 +68,22 @@ func main() {
 	var cfg *config.Config
 	var err error
 
-	if *configFile != "" {
+	if *editFile != "" {
+		// Edit existing config file
+		reader := bufio.NewReader(os.Stdin)
+		cfg = editConfigFile(reader, *editFile)
+		if cfg == nil {
+			os.Exit(1)
+		}
+		// After editing, continue with deployment or just save
+		fmt.Println()
+		if promptBool(reader, "Deploy with this config", true) {
+			// Continue to deployment below
+		} else {
+			fmt.Println("Config saved. Exiting.")
+			os.Exit(0)
+		}
+	} else if *configFile != "" {
 		// Load from config file
 		cfg, err = loadConfigWithPrompt(*configFile)
 		if err != nil {
@@ -860,6 +878,65 @@ func parseInt(s string) int {
 		return 0
 	}
 	return n
+}
+
+// editConfigFile edits a specific config file directly
+func editConfigFile(reader *bufio.Reader, path string) *config.Config {
+	// Load the config (prompt for password if encrypted)
+	cfg, err := loadConfigWithPrompt(path)
+	if err != nil {
+		fmt.Printf("Error loading config: %v\n", err)
+		return nil
+	}
+
+	// Edit the config
+	editedCfg := runConfigEditor(reader, cfg)
+	if editedCfg == nil {
+		return nil
+	}
+
+	// Save the edited config
+	fmt.Println()
+	fmt.Println("══════════════════════════════════════════════════════════════════")
+	fmt.Println("  Save Edited Configuration")
+	fmt.Println("══════════════════════════════════════════════════════════════════")
+	fmt.Printf("Save to: %s\n", path)
+	fmt.Println()
+
+	if !promptBool(reader, "Save changes", true) {
+		fmt.Println("Changes discarded.")
+		return nil
+	}
+
+	// Require encryption password
+	var password string
+	for {
+		password = promptPassword(reader, "Config encryption password (required)")
+		if password == "" {
+			fmt.Println("ERROR: Encryption password is required")
+			continue
+		}
+		if len(password) < 8 {
+			fmt.Println("ERROR: Password must be at least 8 characters")
+			continue
+		}
+		confirmPassword := promptPassword(reader, "Confirm encryption password")
+		if password != confirmPassword {
+			fmt.Println("ERROR: Passwords do not match")
+			continue
+		}
+		break
+	}
+
+	if err := config.SaveConfigEncrypted(editedCfg, path, password); err != nil {
+		fmt.Printf("Error saving config: %v\n", err)
+		return nil
+	}
+
+	fmt.Println()
+	fmt.Println("Configuration saved successfully!")
+	saveLastConfig(path)
+	return editedCfg
 }
 
 // editExistingConfig allows editing an existing configuration

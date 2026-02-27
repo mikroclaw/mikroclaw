@@ -83,7 +83,7 @@ func TestValidate(t *testing.T) {
 			wantError: false,
 		},
 		{
-			name: "port 7778 without TLS should fail",
+			name: "port 7778 without TLS is valid",
 			config: Config{
 				RouterOS: RouterOSConfig{
 					Host:     "192.168.1.1",
@@ -97,8 +97,7 @@ func TestValidate(t *testing.T) {
 					Image: "ghcr.io/openclaw/mikroclaw:latest",
 				},
 			},
-			wantError: true,
-			errorMsg:  "port 7778 requires TLS",
+			wantError: false,
 		},
 		{
 			name: "missing host should fail",

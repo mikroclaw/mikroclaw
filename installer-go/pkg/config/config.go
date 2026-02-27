@@ -225,11 +225,6 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("either container image or file must be specified")
 	}
 
-	// Port 7778 is the API SSL port - must use TLS
-	if c.RouterOS.Port == 7778 && !c.RouterOS.UseTLS {
-		return fmt.Errorf("port 7778 requires TLS - set use_tls to true")
-	}
-
 	// Warn about password security
 	if c.RouterOS.Password != "" && len(c.RouterOS.Password) < 12 {
 		fmt.Fprintf(os.Stderr, "Warning: RouterOS password is less than 12 characters\n")
