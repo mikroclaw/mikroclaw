@@ -533,7 +533,9 @@ func promptInt(reader *bufio.Reader, prompt string, defaultValue int) int {
 		return defaultValue
 	}
 	var result int
-	fmt.Sscanf(input, "%d", &result)
+	if _, err := fmt.Sscanf(input, "%d", &result); err != nil {
+		return defaultValue
+	}
 	return result
 }
 

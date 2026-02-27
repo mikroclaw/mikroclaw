@@ -262,7 +262,9 @@ func parseVersion(version string) float64 {
 	matches := re.FindStringSubmatch(version)
 	if len(matches) >= 2 {
 		var major, minor int
-		fmt.Sscanf(matches[0], "%d.%d", &major, &minor)
+		if _, err := fmt.Sscanf(matches[0], "%d.%d", &major, &minor); err != nil {
+			return 0.0
+		}
 		return float64(major) + float64(minor)/100.0
 	}
 	return 0.0
