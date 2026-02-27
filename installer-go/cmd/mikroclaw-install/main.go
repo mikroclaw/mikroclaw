@@ -17,6 +17,7 @@ import (
 	"github.com/openclaw/mikroclaw-installer/pkg/config"
 	"github.com/openclaw/mikroclaw-installer/pkg/preflight"
 	"github.com/openclaw/mikroclaw-installer/pkg/routeros"
+	"github.com/openclaw/mikroclaw-installer/pkg/tui"
 )
 
 var (
@@ -880,7 +881,7 @@ func parseInt(s string) int {
 	return n
 }
 
-// editConfigFile edits a specific config file directly
+// editConfigFile edits a specific config file directly using menu editor
 func editConfigFile(reader *bufio.Reader, path string) *config.Config {
 	// Load the config (prompt for password if encrypted)
 	cfg, err := loadConfigWithPrompt(path)
@@ -889,9 +890,12 @@ func editConfigFile(reader *bufio.Reader, path string) *config.Config {
 		return nil
 	}
 
-	// Edit the config
-	editedCfg := runConfigEditor(reader, cfg)
+	// Use the new menu-based editor
+	editor := tui.NewMenuEditor(cfg)
+	editedCfg := editor.Run()
+
 	if editedCfg == nil {
+		fmt.Println("Changes discarded.")
 		return nil
 	}
 
@@ -902,11 +906,6 @@ func editConfigFile(reader *bufio.Reader, path string) *config.Config {
 	fmt.Println("══════════════════════════════════════════════════════════════════")
 	fmt.Printf("Save to: %s\n", path)
 	fmt.Println()
-
-	if !promptBool(reader, "Save changes", true) {
-		fmt.Println("Changes discarded.")
-		return nil
-	}
 
 	// Require encryption password
 	var password string
@@ -977,9 +976,14 @@ func editExistingConfig(reader *bufio.Reader, configs []string) *config.Config {
 		return nil
 	}
 
-	// Edit the config
-	editedCfg := runConfigEditor(reader, cfg)
+	// Use the new menu-based editor
+	editor := tui.NewMenuEditor(cfg)
+	editedCfg := editor.Run()
+
 	if editedCfg == nil {
+		fmt.Println("Changes discarded.")
+		fmt.Println("Press Enter to continue...")
+		readLine(reader)
 		return nil
 	}
 
@@ -990,13 +994,6 @@ func editExistingConfig(reader *bufio.Reader, configs []string) *config.Config {
 	fmt.Println("══════════════════════════════════════════════════════════════════")
 	fmt.Printf("Save to: %s\n", configPath)
 	fmt.Println()
-
-	if !promptBool(reader, "Save changes", true) {
-		fmt.Println("Changes discarded.")
-		fmt.Println("Press Enter to continue...")
-		readLine(reader)
-		return nil
-	}
 
 	// Require encryption password
 	var password string
@@ -1031,109 +1028,3 @@ func editExistingConfig(reader *bufio.Reader, configs []string) *config.Config {
 	return editedCfg
 }
 
-// runConfigEditor runs interactive prompts to edit a config
-func runConfigEditor(reader *bufio.Reader, cfg *config.Config) *config.Config {
-	fmt.Println()
-	fmt.Println("══════════════════════════════════════════════════════════════════")
-	fmt.Println("  Edit Configuration - Press Enter to keep current value")
-	fmt.Println("══════════════════════════════════════════════════════════════════")
-	fmt.Println()
-
-	// RouterOS Settings
-	fmt.Println("──────────────────────────────────────────────────────────────────")
-	fmt.Println("RouterOS Connection Settings")
-	fmt.Println("──────────────────────────────────────────────────────────────────")
-
-	cfg.RouterOS.Host = promptStringOrDefault(reader, "RouterOS IP/Hostname", cfg.RouterOS.Host)
-	cfg.RouterOS.Port = promptIntOrDefault(reader, "API Port", cfg.RouterOS.Port)
-	cfg.RouterOS.Username = promptStringOrDefault(reader, "Username", cfg.RouterOS.Username)
-
-	newPassword := promptPassword(reader, "Password (press Enter to keep current)")
-	if newPassword != "" {
-		cfg.RouterOS.Password = newPassword
-	}
-
-	cfg.RouterOS.UseTLS = promptBool(reader, "Use TLS/HTTPS", cfg.RouterOS.UseTLS)
-
-	// Container Settings
-	fmt.Println()
-	fmt.Println("──────────────────────────────────────────────────────────────────")
-	fmt.Println("Container Settings")
-	fmt.Println("──────────────────────────────────────────────────────────────────")
-
-	cfg.Container.Name = promptStringOrDefault(reader, "Container name", cfg.Container.Name)
-	cfg.Container.Image = promptStringOrDefault(reader, "Image URL", cfg.Container.Image)
-	cfg.Container.AutoStart = promptBool(reader, "Auto-start container", cfg.Container.AutoStart)
-
-	// MemU Settings
-	fmt.Println()
-	fmt.Println("──────────────────────────────────────────────────────────────────")
-	fmt.Println("MemU Cloud Configuration (Optional)")
-	fmt.Println("──────────────────────────────────────────────────────────────────")
-
-	newMemuKey := promptPassword(reader, "MemU API Key (press Enter to keep current)")
-	if newMemuKey != "" {
-		cfg.MikroClaw.MemuKey = newMemuKey
-	}
-
-	// LLM Provider Settings
-	fmt.Println()
-	fmt.Println("──────────────────────────────────────────────────────────────────")
-	fmt.Println("AI Provider Configuration")
-	fmt.Println("──────────────────────────────────────────────────────────────────")
-
-	fmt.Printf("Current provider: %s\n", cfg.MikroClaw.LLMProvider)
-	fmt.Println("Available: openrouter, cerebras, zai, openai, custom")
-	newProvider := promptStringOrDefault(reader, "Provider (press Enter to keep)", cfg.MikroClaw.LLMProvider)
-	if newProvider != "" && newProvider != cfg.MikroClaw.LLMProvider {
-		cfg.MikroClaw.LLMProvider = newProvider
-	}
-
-	newAPIKey := promptPassword(reader, "API Key (press Enter to keep current)")
-	if newAPIKey != "" {
-		cfg.MikroClaw.APIKey = newAPIKey
-	}
-
-	cfg.MikroClaw.Model = promptStringOrDefault(reader, "Model", cfg.MikroClaw.Model)
-
-	// Advanced Settings
-	fmt.Println()
-	fmt.Println("──────────────────────────────────────────────────────────────────")
-	fmt.Println("Advanced Settings")
-	fmt.Println("──────────────────────────────────────────────────────────────────")
-
-	cfg.Deployment.DryRun = promptBool(reader, "Dry run mode", cfg.Deployment.DryRun)
-	cfg.Deployment.AutoFixVETH = promptBool(reader, "Auto-configure VETH", cfg.Deployment.AutoFixVETH)
-
-	fmt.Println()
-	fmt.Println("Edit complete!")
-	return cfg
-}
-
-// promptStringOrDefault prompts for a string, returning default if empty
-func promptStringOrDefault(reader *bufio.Reader, prompt, defaultValue string) string {
-	if defaultValue != "" {
-		fmt.Printf("%s [%s]: ", prompt, defaultValue)
-	} else {
-		fmt.Printf("%s: ", prompt)
-	}
-	input := readLine(reader)
-	if input == "" {
-		return defaultValue
-	}
-	return input
-}
-
-// promptIntOrDefault prompts for an int, returning default if empty
-func promptIntOrDefault(reader *bufio.Reader, prompt string, defaultValue int) int {
-	fmt.Printf("%s [%d]: ", prompt, defaultValue)
-	input := readLine(reader)
-	if input == "" {
-		return defaultValue
-	}
-	var result int
-	if _, err := fmt.Sscanf(input, "%d", &result); err != nil {
-		return defaultValue
-	}
-	return result
-}
