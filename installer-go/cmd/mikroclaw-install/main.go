@@ -6,6 +6,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -35,14 +37,18 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "MikroClaw Installer - Deploy containers to RouterOS\n\n")
 		fmt.Fprintf(os.Stderr, "Security: All configs are encrypted with ChaCha20-Poly1305 + Argon2id\n\n")
+		fmt.Fprintf(os.Stderr, "QUICK START (no flags needed):\n")
+		fmt.Fprintf(os.Stderr, "  %s              # Show menu to load/create configs\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
-		fmt.Fprintf(os.Stderr, "  # Interactive mode (recommended - prompts for all values securely)\n")
+		fmt.Fprintf(os.Stderr, "  # Show main menu (load/create configs)\n")
+		fmt.Fprintf(os.Stderr, "  %s\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  # Create new configuration interactively\n")
 		fmt.Fprintf(os.Stderr, "  %s -i\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  # Run pre-flight checks only\n")
 		fmt.Fprintf(os.Stderr, "  %s -check\n\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  # Use encrypted configuration file\n")
+		fmt.Fprintf(os.Stderr, "  # Load specific config file\n")
 		fmt.Fprintf(os.Stderr, "  %s -config mikroclaw.json\n", os.Args[0])
 	}
 
@@ -66,12 +72,19 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 			os.Exit(1)
 		}
-	} else if *interactive || isTerminal {
+	} else if *interactive {
 		// Interactive mode
 		cfg = runInteractiveSetup()
-	} else {
+	} else if isTerminal && len(os.Args) == 1 {
+		// No flags provided and running in terminal - show menu
+		cfg = showMainMenu()
+	} else if !isTerminal {
 		// Non-interactive mode requires config file
 		fmt.Fprintf(os.Stderr, "Error: Either use -i for interactive mode or provide -config file\n\n")
+		flag.Usage()
+		os.Exit(1)
+	} else {
+		// Flags provided but no config - show usage
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -341,7 +354,20 @@ func runInteractiveSetup() *config.Config {
 	// Save configuration (ALWAYS encrypted - mandatory)
 	fmt.Println()
 	if promptBool(reader, "Save this configuration to file", true) {
+		// Show default config location
+		configDir := getConfigDir()
+		os.MkdirAll(configDir, 0700)
+
+		fmt.Printf("Config directory: %s\n", configDir)
 		filename := promptString(reader, "Filename", "mikroclaw-config.json")
+
+		// Ensure .json extension
+		if !strings.HasSuffix(filename, ".json") {
+			filename += ".json"
+		}
+
+		// Full path
+		fullPath := filepath.Join(configDir, filename)
 
 		// Require encryption password - keep prompting until provided and confirmed
 		var password string
@@ -364,10 +390,11 @@ func runInteractiveSetup() *config.Config {
 			break
 		}
 
-		if err := config.SaveConfigEncrypted(cfg, filename, password); err != nil {
+		if err := config.SaveConfigEncrypted(cfg, fullPath, password); err != nil {
 			fmt.Printf("Error: Could not save config: %v\n", err)
 		} else {
-			fmt.Printf("Configuration saved to: %s (encrypted)\n", filename)
+			saveLastConfig(fullPath)
+			fmt.Printf("Configuration saved to: %s (encrypted)\n", fullPath)
 			fmt.Printf("File permissions: 0600 (owner read/write only)\n")
 			fmt.Println()
 			fmt.Println("IMPORTANT: Remember your encryption password!")
@@ -610,4 +637,214 @@ func loadConfigWithPrompt(path string) (*config.Config, error) {
 
 	// Not encrypted, return original error
 	return nil, err
+}
+
+// getConfigDir returns the default config directory
+func getConfigDir() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "."
+	}
+	return filepath.Join(homeDir, ".config", "mikroclaw")
+}
+
+// getLastConfigFile returns path to the last used config tracker
+func getLastConfigFile() string {
+	return filepath.Join(getConfigDir(), ".lastconfig")
+}
+
+// saveLastConfig remembers the last used config
+func saveLastConfig(path string) {
+	configDir := getConfigDir()
+	os.MkdirAll(configDir, 0700)
+	os.WriteFile(getLastConfigFile(), []byte(path), 0600)
+}
+
+// loadLastConfig returns the last used config path
+func loadLastConfig() string {
+	data, err := os.ReadFile(getLastConfigFile())
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// listConfigs returns all saved config files
+func listConfigs() []string {
+	configDir := getConfigDir()
+	files, err := os.ReadDir(configDir)
+	if err != nil {
+		return []string{}
+	}
+
+	var configs []string
+	for _, f := range files {
+		if f.IsDir() {
+			continue
+		}
+		name := f.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		if strings.HasSuffix(name, ".json") {
+			configs = append(configs, name)
+		}
+	}
+	sort.Strings(configs)
+	return configs
+}
+
+// showMainMenu displays the main menu when no flags provided
+func showMainMenu() *config.Config {
+	reader := bufio.NewReader(os.Stdin)
+
+	for {
+		fmt.Println()
+		fmt.Println("══════════════════════════════════════════════════════════════════")
+		fmt.Println("  MikroClaw Installer - Main Menu")
+		fmt.Println("══════════════════════════════════════════════════════════════════")
+		fmt.Println()
+
+		lastConfig := loadLastConfig()
+		configs := listConfigs()
+
+		// Show last used config if available
+		if lastConfig != "" {
+			fmt.Printf("  Last used: %s\n", filepath.Base(lastConfig))
+			fmt.Println()
+		}
+
+		// Show saved configs
+		if len(configs) > 0 {
+			fmt.Println("  Saved configurations:")
+			for i, c := range configs {
+				fmt.Printf("    %d) %s\n", i+1, c)
+			}
+			fmt.Println()
+		}
+
+		// Menu options
+		fmt.Println("  Options:")
+		if lastConfig != "" {
+			fmt.Println("    L) Load last used config")
+		}
+		if len(configs) > 0 {
+			fmt.Println("    #) Enter number to load config")
+			fmt.Println("    S) Show all configs with details")
+		}
+		fmt.Println("    N) Create new configuration")
+		fmt.Println("    C) Load config from custom path")
+		fmt.Println("    Q) Quit")
+		fmt.Println()
+		fmt.Print("Select option: ")
+
+		choice := strings.TrimSpace(strings.ToUpper(readLine(reader)))
+
+		switch choice {
+		case "L":
+			if lastConfig != "" {
+				cfg, err := loadConfigWithPrompt(lastConfig)
+				if err != nil {
+					fmt.Printf("Error loading config: %v\n", err)
+					fmt.Println("Press Enter to continue...")
+					readLine(reader)
+					continue
+				}
+				return cfg
+			}
+
+		case "N":
+			cfg := runInteractiveSetup()
+			return cfg
+
+		case "C":
+			fmt.Print("Enter config file path: ")
+			path := strings.TrimSpace(readLine(reader))
+			if path != "" {
+				cfg, err := loadConfigWithPrompt(path)
+				if err != nil {
+					fmt.Printf("Error loading config: %v\n", err)
+					fmt.Println("Press Enter to continue...")
+					readLine(reader)
+					continue
+				}
+				saveLastConfig(path)
+				return cfg
+			}
+
+		case "S":
+			showConfigDetails(reader, configs)
+
+		case "Q", "QUIT", "EXIT":
+			fmt.Println("Goodbye!")
+			os.Exit(0)
+
+		default:
+			// Try to parse as number
+			if num := parseInt(choice); num > 0 && num <= len(configs) {
+				path := filepath.Join(getConfigDir(), configs[num-1])
+				cfg, err := loadConfigWithPrompt(path)
+				if err != nil {
+					fmt.Printf("Error loading config: %v\n", err)
+					fmt.Println("Press Enter to continue...")
+					readLine(reader)
+					continue
+				}
+				saveLastConfig(path)
+				return cfg
+			}
+			fmt.Println("Invalid option. Press Enter to continue...")
+			readLine(reader)
+		}
+	}
+}
+
+// showConfigDetails displays details of all configs
+func showConfigDetails(reader *bufio.Reader, configs []string) {
+	fmt.Println()
+	fmt.Println("══════════════════════════════════════════════════════════════════")
+	fmt.Println("  Saved Configurations")
+	fmt.Println("══════════════════════════════════════════════════════════════════")
+	fmt.Println()
+
+	configDir := getConfigDir()
+	for i, c := range configs {
+		path := filepath.Join(configDir, c)
+		info, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+
+		// Try to peek at config for basic info
+		data, _ := os.ReadFile(path)
+		isEncrypted := config.IsEncrypted(data)
+
+		fmt.Printf("%d) %s\n", i+1, c)
+		fmt.Printf("   Size: %d bytes | Modified: %s\n", info.Size(), info.ModTime().Format("2006-01-02 15:04"))
+		if isEncrypted {
+			fmt.Println("   Status: Encrypted")
+		} else {
+			fmt.Println("   Status: Plaintext (legacy)")
+		}
+		fmt.Println()
+	}
+
+	fmt.Println("Press Enter to continue...")
+	readLine(reader)
+}
+
+// readLine reads a line from stdin
+func readLine(reader *bufio.Reader) string {
+	line, _ := reader.ReadString('\n')
+	return strings.TrimSpace(line)
+}
+
+// parseInt parses a string to int, returns 0 on error
+func parseInt(s string) int {
+	var n int
+	_, err := fmt.Sscanf(s, "%d", &n)
+	if err != nil {
+		return 0
+	}
+	return n
 }
