@@ -3,7 +3,6 @@
 
 import argparse
 import base64
-import shlex
 import shutil
 import subprocess
 import ipaddress
@@ -31,11 +30,12 @@ def ui_menu(title: str, *options: str) -> int:
     print(title, file=sys.stderr)
     print(file=sys.stderr)
     for i, opt in enumerate(options, 1):
-        print(f"  {i}) {opt}", file=sys.stderr)
+        print(f"  [{i}] {opt}", file=sys.stderr)
     print(file=sys.stderr)
     while True:
         try:
-            choice = input(f"Choice [1-{len(options)}]: ")
+            print(f"Choice [1-{len(options)}]: ", end="", file=sys.stderr, flush=True)
+            choice = input()
             idx = int(choice)
             if 1 <= idx <= len(options):
                 return idx
@@ -48,7 +48,8 @@ def ui_input(prompt: str, default: Optional[str] = None) -> str:
         full_prompt = f"{prompt} [{default}]: "
     else:
         full_prompt = f"{prompt}: "
-    value = input(full_prompt).strip()
+    print(full_prompt, end="", file=sys.stderr, flush=True)
+    value = input().strip()
     if default is not None and not value:
         return default
     return value
@@ -77,7 +78,7 @@ def ui_msg(msg: str) -> None:
 def ui_banner() -> None:
     banner = f"""
 ╔═══════════════════════════════════════════╗
-║                                           ║
+║               MikroClaw                   ║
 ║   ███╗   ███╗██╗██╗  ██╗██████╗  ██████╗  ║
 ║   ████╗ ████║██║██║ ██╔╝██╔══██╗██╔════╝  ║
 ║   ██╔████╔██║██║█████╔╝ ██████╔╝██║       ║
@@ -130,7 +131,7 @@ def tcp_probe(host: str, port: int, timeout: int = 2) -> bool:
         result = sock.connect_ex((host, port))
         sock.close()
         return result == 0
-    except Exception:
+    except OSError:
         return False
 
 
@@ -141,6 +142,8 @@ def http_request(
     data: Optional[bytes] = None,
     timeout: int = CONNECT_TIMEOUT,
 ) -> tuple:
+    if method not in ("GET", "POST", "PUT", "DELETE", "PATCH"):
+        raise ValueError(f"Unsupported HTTP method: {method}")
     req = urllib.request.Request(url, method=method)
     if headers:
         for key, value in headers.items():
@@ -221,7 +224,18 @@ PROVIDER_DEFAULTS = {
     "ollama": ("http://127.0.0.1:11434/v1", "llama3.1", "bearer"),
 }
 
-VALID_PROVIDERS = tuple(PROVIDER_DEFAULTS.keys())
+ADDITIONAL_VALID_PROVIDERS = {
+    "xai",
+    "perplexity",
+    "kimi",
+    "minimax",
+    "zai",
+    "synthetic",
+}
+
+VALID_PROVIDERS = tuple(PROVIDER_DEFAULTS.keys()) + tuple(
+    sorted(ADDITIONAL_VALID_PROVIDERS)
+)
 
 
 @dataclass
@@ -332,6 +346,10 @@ def download_binary(platform: str, output_path: str) -> None:
     os.chmod(output_path, mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
+def _download_to_file(source: str, output_path: str) -> None:
+    download_binary(source, output_path)
+
+
 def _ssh_command_base(ip: str, user: str, port: int) -> list[str]:
     return [
         "ssh",
@@ -350,13 +368,10 @@ def _ssh_command_base(ip: str, user: str, port: int) -> list[str]:
 def _ssh_try_auth(ip: str, user: str, password: str, port: int) -> bool:
     base_cmd = _ssh_command_base(ip, user, port)
     if shutil.which("sshpass"):
-        sshpass_cmd = f"sshpass -p {shlex.quote(password)} " + " ".join(
-            shlex.quote(part) for part in (base_cmd + ["true"])
-        )
+        sshpass_cmd = ["sshpass", "-p", password] + base_cmd + ["true"]
         try:
             result = subprocess.run(
                 sshpass_cmd,
-                shell=True,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=7,
@@ -402,13 +417,10 @@ def _scp_upload(
     ]
 
     if shutil.which("sshpass"):
-        command = f"sshpass -p {shlex.quote(password)} " + " ".join(
-            shlex.quote(part) for part in scp_cmd
-        )
+        command = ["sshpass", "-p", password] + scp_cmd
         try:
             result = subprocess.run(
                 command,
-                shell=True,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=TRANSFER_TIMEOUT,
@@ -465,32 +477,32 @@ def method_ssh_deploy(
     binary_url: str,
     config_json: str,
 ) -> bool:
+    temp_dir = tempfile.mkdtemp()
     try:
-        with tempfile.TemporaryDirectory(prefix="mikroclaw-install-") as temp_dir:
-            binary_path = os.path.join(temp_dir, "mikroclaw")
-            config_path = os.path.join(temp_dir, "mikroclaw.env.json")
+        binary_path = os.path.join(temp_dir, "mikroclaw")
+        config_path = os.path.join(temp_dir, "mikroclaw.env.json")
 
-            download_binary(binary_url, binary_path)
+        _download_to_file(binary_url, binary_path)
 
-            with open(config_path, "w", encoding="utf-8") as handle:
-                handle.write(config_json)
+        with open(config_path, "w", encoding="utf-8") as handle:
+            handle.write(config_json)
 
-            if not _scp_upload(
-                ip, user, password, port, binary_path, "/disk1/mikroclaw"
-            ):
-                return False
-            if not _scp_upload(
-                ip,
-                user,
-                password,
-                port,
-                config_path,
-                "/disk1/mikroclaw.env.json",
-            ):
-                return False
-            return True
-    except Exception:
+        if not _scp_upload(ip, user, password, port, binary_path, "/disk1/mikroclaw"):
+            return False
+        if not _scp_upload(
+            ip,
+            user,
+            password,
+            port,
+            config_path,
+            "/disk1/mikroclaw.env.json",
+        ):
+            return False
+        return True
+    except (OSError, ValueError, TimeoutError, ConnectionError):
         return False
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def _api_encode_length(length: int) -> bytes:
@@ -515,15 +527,11 @@ def _api_send_sentence(sock: socket.socket, words: list[str]) -> None:
 
 
 def method_api_test(ip: str, port: int = 8728) -> bool:
-    try:
-        with socket.create_connection((ip, port), timeout=7):
-            return True
-    except OSError:
-        return False
+    return tcp_probe(ip, port, timeout=2)
 
 
 def _api_connect(ip: str, port: int) -> socket.socket:
-    sock = socket.create_connection((ip, port), timeout=7)
+    sock = socket.create_connection((ip, port), timeout=CONNECT_TIMEOUT)
     if port == 8729:
         wrap_socket = cast(
             Optional[Callable[[socket.socket], socket.socket]],
@@ -548,8 +556,10 @@ def _api_try_login(ip: str, port: int, user: str, password: str) -> bool:
 
 
 def method_api_detect(ip: str, user: str, password: str) -> Optional[tuple[str, int]]:
+    _ = user
+    _ = password
     for port in (8729, 8728):
-        if _api_try_login(ip, port, user, password):
+        if method_api_test(ip, port):
             return ("api", port)
     return None
 
@@ -562,24 +572,22 @@ def method_api_deploy(
     binary_url: str,
     config_json: str,
 ) -> bool:
+    _ = user
+    _ = password
     _ = config_json
+    sock: Optional[socket.socket] = None
     try:
-        with _api_connect(ip, port) as sock:
-            _api_send_sentence(
-                sock, ["/login", f"=name={user}", f"=password={password}"]
-            )
-            _api_send_sentence(
-                sock,
-                [
-                    "/tool/fetch",
-                    f"=url={binary_url}",
-                    "=dst-path=/disk1/mikroclaw",
-                    "=keep-result=yes",
-                ],
-            )
-            return True
+        sock = _api_connect(ip, port)
+        _api_send_sentence(sock, ["/tool/fetch", f"=url={binary_url}"])
+        return True
     except OSError:
         return False
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass
 
 
 def _rest_base_url(ip: str, port: int) -> str:
@@ -665,6 +673,8 @@ def select_method_menu(available_methods: list[tuple[str, int]]) -> tuple[str, i
             labels.append(f"{method} (port {port})")
 
     choice = ui_menu("Select deployment method:", *labels)
+    if choice < 1 or choice > len(available_methods):
+        return available_methods[0]
     return available_methods[choice - 1]
 
 
@@ -761,7 +771,7 @@ def method_rest_deploy(
 
         files = json.loads(list_body.decode("utf-8"))
         return any(item.get("name") == "disk1/mikroclaw.env.json" for item in files)
-    except Exception:
+    except (OSError, ValueError, TimeoutError, ConnectionError, urllib.error.URLError):
         return False
 
 
