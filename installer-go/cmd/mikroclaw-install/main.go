@@ -34,14 +34,15 @@ func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "MikroClaw Installer - Deploy containers to RouterOS\n\n")
+		fmt.Fprintf(os.Stderr, "Security: All configs are encrypted with ChaCha20-Poly1305 + Argon2id\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
-		fmt.Fprintf(os.Stderr, "  # Interactive mode (recommended)\n")
+		fmt.Fprintf(os.Stderr, "  # Interactive mode (recommended - prompts for all values securely)\n")
 		fmt.Fprintf(os.Stderr, "  %s -i\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  # Run pre-flight checks only\n")
 		fmt.Fprintf(os.Stderr, "  %s -check\n\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  # Use configuration file\n")
+		fmt.Fprintf(os.Stderr, "  # Use encrypted configuration file\n")
 		fmt.Fprintf(os.Stderr, "  %s -config mikroclaw.json\n", os.Args[0])
 	}
 
@@ -337,31 +338,40 @@ func runInteractiveSetup() *config.Config {
 	cfg.Deployment.DryRun = promptBool(reader, "Dry run mode (preview only)", false)
 	cfg.Deployment.AutoFixVETH = promptBool(reader, "Auto-configure VETH if missing", true)
 
-	// Save configuration (ALWAYS encrypted)
+	// Save configuration (ALWAYS encrypted - mandatory)
 	fmt.Println()
 	if promptBool(reader, "Save this configuration to file", true) {
 		filename := promptString(reader, "Filename", "mikroclaw-config.json")
-		password := promptPassword(reader, "Config encryption password")
-		if password == "" {
-			fmt.Println("Warning: Empty password - config will not be saved encrypted")
-			if err := config.SaveConfig(cfg, filename); err != nil {
-				fmt.Printf("Warning: Could not save config: %v\n", err)
-			} else {
-				fmt.Printf("Configuration saved to: %s (UNENCRYPTED)\n", filename)
-				fmt.Println("WARNING: File contains plaintext passwords!")
+
+		// Require encryption password - keep prompting until provided and confirmed
+		var password string
+		for {
+			password = promptPassword(reader, "Config encryption password (required)")
+			if password == "" {
+				fmt.Println("ERROR: Encryption password is required to protect credentials")
+				fmt.Println("       Config will not be saved without encryption")
+				continue
 			}
-		} else {
+			if len(password) < 8 {
+				fmt.Println("ERROR: Password must be at least 8 characters")
+				continue
+			}
 			confirmPassword := promptPassword(reader, "Confirm encryption password")
 			if password != confirmPassword {
-				fmt.Println("Warning: Passwords do not match - config not saved")
-			} else {
-				if err := config.SaveConfigEncrypted(cfg, filename, password); err != nil {
-					fmt.Printf("Warning: Could not save config: %v\n", err)
-				} else {
-					fmt.Printf("Configuration saved to: %s (encrypted)\n", filename)
-					fmt.Printf("File permissions: 0600 (owner read/write only)\n")
-				}
+				fmt.Println("ERROR: Passwords do not match - please try again")
+				continue
 			}
+			break
+		}
+
+		if err := config.SaveConfigEncrypted(cfg, filename, password); err != nil {
+			fmt.Printf("Error: Could not save config: %v\n", err)
+		} else {
+			fmt.Printf("Configuration saved to: %s (encrypted)\n", filename)
+			fmt.Printf("File permissions: 0600 (owner read/write only)\n")
+			fmt.Println()
+			fmt.Println("IMPORTANT: Remember your encryption password!")
+			fmt.Println("           You will need it to load this config file.")
 		}
 	}
 
