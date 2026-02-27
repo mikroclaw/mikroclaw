@@ -8,95 +8,105 @@ on:
     branches: [ main, master ]
 
 jobs:
-  build-default:
+  build-go:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./installer-go
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libmbedtls-dev libcurl4-openssl-dev
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
 
       - name: Build
-        run: make clean && make
-
-      - name: Enforce dynamic size budget
         run: |
-          size=$(stat -c%s ./mikroclaw)
-          test "$size" -lt 98304
+          go build -v -o mikroclaw-install ./cmd/mikroclaw-install/
+          ls -lh mikroclaw-install
 
-      - name: Release verification
+      - name: Test
+        run: go test -v ./...
+
+      - name: Check formatting
         run: |
-          chmod +x ./scripts/verify-release.sh
-          ./scripts/verify-release.sh
+          if [ "$(gofmt -l . | wc -l)" -gt 0 ]; then
+            echo "Code is not formatted:"
+            gofmt -l .
+            exit 1
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mikroclaw-dynamic
-          path: mikroclaw
+          name: mikroclaw-installer
+          path: installer-go/mikroclaw-install
 
-  build-static-musl:
+  build-cross-platform:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build static musl
-        run: |
-          chmod +x ./scripts/build-musl.sh
-          ./scripts/build-musl.sh
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
 
-      - name: Verify static binary
+      - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+        working-directory: ./installer-go
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
         run: |
-          file ./mikroclaw-static-musl
-          ldd ./mikroclaw-static-musl 2>&1 | grep "not a dynamic executable"
-          size=$(stat -c%s ./mikroclaw-static-musl)
-          test "$size" -lt 655360
+          output="mikroclaw-install-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            output="${output}.exe"
+          fi
+          go build -v -ldflags="-s -w" -o "$output" ./cmd/mikroclaw-install/
+          ls -lh "$output"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mikroclaw-static-musl
-          path: mikroclaw-static-musl
+          name: mikroclaw-install-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: installer-go/mikroclaw-install-*
 
-  build-custom-mbedtls:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install toolchain and mbedTLS source
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libmbedtls-dev libcurl4-openssl-dev git
-          git clone --depth 1 --branch mbedtls-2.28.10 https://github.com/Mbed-TLS/mbedtls.git /tmp/mbedtls
-
-      - name: Build custom mbedTLS
-        run: |
-          chmod +x ./scripts/build-mbedtls.sh
-          MBEDTLS_SRC=/tmp/mbedtls ./scripts/build-mbedtls.sh ./third_party/mbedtls
-
-      - name: Build minimal target with custom mbedTLS
-        run: make clean && make USE_CUSTOM_MBEDTLS=1 CUSTOM_MBEDTLS_PREFIX=./third_party/mbedtls mikroclaw-minimal
-
-      - name: Report size
-        run: ls -lh ./mikroclaw
-
-  build-mikrotik-docker:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libmbedtls-dev
-
-      - name: Build RouterOS container binary
-        run: make mikrotik-docker
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          name: mikrotik-docker
-          path: mikrotik-docker
+          go-version: '1.21'
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: ./installer-go
+
+  # Deprecated: C builds (kept for reference)
+  # build-default:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Install dependencies
+  #       run: sudo apt-get install -y libmbedtls-dev libcurl4-openssl-dev
+  #     - name: Build
+  #       run: make clean && make

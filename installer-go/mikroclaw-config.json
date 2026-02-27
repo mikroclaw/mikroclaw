@@ -1,0 +1,35 @@
+{
+  "routeros": {
+    "host": "${MIKROCLAW_ROUTEROS_HOST:-192.168.100.1}",
+    "port": ${MIKROCLAW_ROUTEROS_PORT:-7778},
+    "username": "${MIKROCLAW_ROUTEROS_USERNAME:-jefferson}",
+    "password": "${MIKROCLAW_ROUTEROS_PASSWORD}",
+    "use_tls": true
+  },
+  "container": {
+    "name": "mikroclaw",
+    "image": "ghcr.io/openclaw/mikroclaw:latest",
+    "auto_start": true,
+    "mounts": {
+      "disk1/mikroclaw-data": "/app/data"
+    }
+  },
+  "registry": {
+    "url": "https://ghcr.io"
+  },
+  "deployment": {
+    "dry_run": false,
+    "skip_preflight": false,
+    "auto_fix_veth": true,
+    "force_overwrite": false
+  },
+  "mikroclaw": {
+    "llm_provider": "cerebras",
+    "api_key": "${MIKROCLAW_CEREBRAS_API_KEY}",
+    "base_url": "https://api.cerebras.ai/v1",
+    "model": "llama-3.1-70b",
+    "memu_key": "${MIKROCLAW_MEMU_KEY}",
+    "telegram_token": "${MIKROCLAW_TELEGRAM_TOKEN}",
+    "telegram_allowlist": "*"
+  }
+}
