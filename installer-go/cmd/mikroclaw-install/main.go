@@ -356,7 +356,9 @@ func runInteractiveSetup() *config.Config {
 	if promptBool(reader, "Save this configuration to file", true) {
 		// Show default config location
 		configDir := getConfigDir()
-		os.MkdirAll(configDir, 0700)
+		if err := os.MkdirAll(configDir, 0700); err != nil {
+			fmt.Printf("Warning: Could not create config directory: %v\n", err)
+		}
 
 		fmt.Printf("Config directory: %s\n", configDir)
 		filename := promptString(reader, "Filename", "mikroclaw-config.json")
@@ -656,8 +658,10 @@ func getLastConfigFile() string {
 // saveLastConfig remembers the last used config
 func saveLastConfig(path string) {
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
-	os.WriteFile(getLastConfigFile(), []byte(path), 0600)
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		return
+	}
+	_ = os.WriteFile(getLastConfigFile(), []byte(path), 0600)
 }
 
 // loadLastConfig returns the last used config path
