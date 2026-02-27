@@ -1,6 +1,6 @@
 module github.com/openclaw/mikroclaw-installer
 
-go 1.24.2
+go 1.24.0
 
 require (
 	golang.org/x/crypto v0.31.0

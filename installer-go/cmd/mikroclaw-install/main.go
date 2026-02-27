@@ -1027,4 +1027,3 @@ func editExistingConfig(reader *bufio.Reader, configs []string) *config.Config {
 	saveLastConfig(configPath)
 	return editedCfg
 }
-
